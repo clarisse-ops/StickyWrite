@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "stickywrite",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-u", "scripts/start.py", "--no-browser"],
+      "port": 4700
+    }
+  ]
+}

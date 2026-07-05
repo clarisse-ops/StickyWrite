@@ -1,0 +1,14 @@
+# Downloaded by scripts/setup.py, per-machine (~350MB). Re-run setup.py after cloning.
+vendor/languagetool/
+vendor/jre/
+vendor/*.zip
+vendor/*.tar.gz
+vendor/*.part
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node, if it ever shows up
+node_modules/

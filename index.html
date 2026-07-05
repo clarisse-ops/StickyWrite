@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StickyWrite</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%2315c39a'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Georgia'>S</text></svg>">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand" id="brand" title="StickyWrite">
+    <span class="brand-mark">S</span>
+    <span class="brand-name">StickyWrite</span>
+  </div>
+  <button class="icon-btn" id="btn-docs" title="Documents">☰</button>
+  <input id="doc-title" class="doc-title" value="Untitled document" spellcheck="false" autocomplete="off">
+  <div class="topbar-right">
+    <div class="pills" id="pills">
+      <button class="pill" id="pill-harper" title="Harper engine (runs in your browser)"><span class="dot"></span>Harper</button>
+      <button class="pill" id="pill-lt" title="LanguageTool (local server)"><span class="dot"></span>LanguageTool</button>
+      <button class="pill" id="pill-ai" title="Local AI via Ollama"><span class="dot"></span>AI</button>
+    </div>
+    <button class="icon-btn" id="btn-copy" title="Copy document">⧉</button>
+    <button class="icon-btn" id="btn-download" title="Download as .txt">⬇</button>
+    <button class="icon-btn" id="btn-settings" title="Settings">⚙</button>
+    <div class="score-wrap" id="score-wrap" title="Overall score">
+      <svg viewBox="0 0 40 40" width="40" height="40">
+        <circle cx="20" cy="20" r="17" fill="none" stroke="#e6e9ee" stroke-width="4"/>
+        <circle id="score-ring" cx="20" cy="20" r="17" fill="none" stroke="#15c39a" stroke-width="4"
+                stroke-linecap="round" stroke-dasharray="106.8" stroke-dashoffset="0"
+                transform="rotate(-90 20 20)"/>
+      </svg>
+      <span id="score-num">100</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="docs-drawer" id="docs-drawer">
+    <div class="drawer-head">
+      <span>Documents</span>
+      <button class="btn small" id="btn-new-doc">+ New</button>
+    </div>
+    <ul id="doc-list"></ul>
+  </aside>
+
+  <main class="editor-area">
+    <div class="page-scroll">
+      <div class="page">
+        <div id="editor" contenteditable="true" spellcheck="false" data-placeholder="Type or paste your text here..."></div>
+      </div>
+    </div>
+    <footer class="statusbar">
+      <span id="stat-words">0 words</span>
+      <span id="stat-chars">0 characters</span>
+      <span id="stat-time">0 min read</span>
+      <span id="stat-readability" title="Flesch reading ease">Readability: –</span>
+    </footer>
+  </main>
+
+  <aside class="suggest-panel">
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-cat="all">All <b id="count-all">0</b></button>
+      <button class="tab cat-correctness" data-cat="correctness" title="Correctness">● <b id="count-correctness">0</b></button>
+      <button class="tab cat-clarity" data-cat="clarity" title="Clarity">● <b id="count-clarity">0</b></button>
+      <button class="tab cat-engagement" data-cat="engagement" title="Engagement">● <b id="count-engagement">0</b></button>
+      <button class="tab cat-delivery" data-cat="delivery" title="Delivery">● <b id="count-delivery">0</b></button>
+    </div>
+
+    <div class="ai-bar" id="ai-bar" hidden>
+      <button class="btn ai" id="btn-ai-clarity">✨ AI clarity check</button>
+      <button class="btn ai" id="btn-ai-tone">🎭 Detect tone</button>
+    </div>
+    <div class="tone-chips" id="tone-chips" hidden></div>
+    <div class="ai-progress" id="ai-progress" hidden><span class="spinner"></span><span id="ai-progress-text">Thinking...</span></div>
+
+    <div class="cards-scroll">
+      <div id="cards"></div>
+      <div class="empty-state" id="empty-state">
+        <div class="empty-emoji">🕵️</div>
+        <p><b>Nothing to fix yet.</b></p>
+        <p class="muted">Start writing and suggestions will show up here.</p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="popup-card" id="popup-card" hidden></div>
+
+<div class="sel-toolbar" id="sel-toolbar" hidden>
+  <button data-mode="shorten">Shorten</button>
+  <button data-mode="simplify">Simplify</button>
+  <button data-mode="formal">More formal</button>
+  <button data-mode="casual">More casual</button>
+</div>
+
+<div class="modal-backdrop" id="settings-modal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Settings</h2>
+      <button class="icon-btn" id="btn-close-settings">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field">
+        <span>English dialect</span>
+        <select id="set-dialect">
+          <option value="American">American</option>
+          <option value="British">British</option>
+          <option value="Australian">Australian</option>
+          <option value="Canadian">Canadian</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>LanguageTool server URL</span>
+        <input id="set-lt-url" placeholder="http://localhost:8081">
+      </label>
+      <label class="field">
+        <span>Ollama server URL</span>
+        <input id="set-ollama-url" placeholder="http://localhost:11434">
+      </label>
+      <label class="field">
+        <span>AI model</span>
+        <select id="set-model"><option value="">(auto-detect)</option></select>
+      </label>
+      <label class="field row">
+        <input type="checkbox" id="set-lt-on" checked><span>Use LanguageTool when available</span>
+      </label>
+      <label class="field row">
+        <input type="checkbox" id="set-ai-on" checked><span>Use local AI when available</span>
+      </label>
+      <div class="field">
+        <span>Personal dictionary</span>
+        <div id="dict-words" class="dict-words"></div>
+      </div>
+      <p class="muted small">Everything runs on this machine. No text ever leaves it.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" id="btn-save-settings">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -12,3 +12,6 @@ desktop.ini
 
 # Node, if it ever shows up
 node_modules/
+
+# Python bytecode
+__pycache__/

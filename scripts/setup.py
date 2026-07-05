@@ -159,10 +159,10 @@ def ensure_languagetool():
 
 def check_ollama():
     if shutil.which("ollama"):
-        log("Ollama found. Pull a model with:  ollama pull qwen3:8b")
+        log("Ollama found. Pull a model with:  ollama pull gemma3:4b")
     else:
         log("Ollama not installed (optional, powers the AI tier).")
-        log("  Install from https://ollama.com/download then run:  ollama pull qwen3:8b")
+        log("  Install from https://ollama.com/download then run:  ollama pull gemma3:4b")
 
 
 def main():

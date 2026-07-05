@@ -28,7 +28,7 @@ python scripts/start.py    # every time: starts everything and opens the browser
 For the AI tier (optional):
 
 1. Install Ollama from https://ollama.com/download
-2. Pull a model: `ollama pull qwen3:8b` (or any model you like, pick it in Settings)
+2. Pull a model: `ollama pull gemma3:4b` is a good fit for laptops without a discrete GPU. With a discrete GPU, `ollama pull qwen3:8b` gives stronger rewrites. Pick the model in Settings either way.
 
 That's it. `start.py` serves the app at http://localhost:4700 and starts LanguageTool automatically if it's installed.
 

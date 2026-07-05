@@ -223,7 +223,7 @@ function mergeAndRender(text) {
 
   const ignored = new Set(store.getIgnored(currentDoc.id));
   const dictSet = new Set(dictionary.map(w => w.toLowerCase()));
-  let all = [...harperFindings, ...ltFindings, ...llmFindings]
+  let all = [...harperFindings, ...ltFindings]
     .filter(f => !ignored.has(fingerprint(f)))
     .filter(f => !(f.ruleId.startsWith('harper:Spelling') && dictSet.has(f.problem.toLowerCase())));
 
@@ -244,6 +244,10 @@ function mergeAndRender(text) {
       ));
     if (better) kept[i] = f;
   }
+  // AI rewrites are sentence-level, a different granularity than word-level
+  // lints, so they coexist with them instead of competing in the dedupe.
+  kept.push(...llmFindings.filter(f => !ignored.has(fingerprint(f))));
+  kept.sort((a, b) => a.start - b.start);
   kept.forEach((f, i) => { f.id = i; });
   findings = kept;
   window.__sw.findings = findings;

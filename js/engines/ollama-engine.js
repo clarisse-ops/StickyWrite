@@ -109,6 +109,31 @@ export class OllamaEngine {
     return findings;
   }
 
+  // Grammar pass over one paragraph: catches real-word errors (hear/here,
+  // you/your) that rule engines cannot see. Returns errors with offsets
+  // relative to the paragraph.
+  async grammarCheck(paragraph) {
+    const content = await this._chat(
+      'You are a meticulous copy editor. Find genuine errors only: a wrong word that is spelled correctly (hear/here, your/you\'re, hole/whole), a missing or extra word, a wrong verb form, or a missing comma after a greeting. American English spelling is correct as-is, never change gray/color/center style spellings. Do NOT rewrite style, tone, punctuation preferences, or word choice. Do NOT flag informal but correct writing. When unsure, do not flag. Respond ONLY with JSON: {"errors": [{"original": "<shortest exact substring copied verbatim, including the error>", "corrected": "<the fixed substring>", "reason": "<max 8 words>"}]}. If there are no errors: {"errors": []}',
+      paragraph
+    );
+    const parsed = JSON.parse(content);
+    const out = [];
+    for (const e of parsed.errors || []) {
+      if (!e.original || !e.corrected || e.original === e.corrected) continue;
+      const idx = paragraph.indexOf(e.original);
+      if (idx === -1) continue; // model did not quote verbatim: drop
+      out.push({
+        offset: idx,
+        length: e.original.length,
+        original: e.original,
+        corrected: e.corrected,
+        reason: e.reason || 'Grammar',
+      });
+    }
+    return out;
+  }
+
   async rewrite(text, mode) {
     const instructions = {
       shorten: 'Rewrite this text to be significantly shorter while keeping every important point. Same voice, same meaning.',

@@ -2,8 +2,12 @@ import { Editor } from './editor.js';
 import { HarperEngine } from './engines/harper-engine.js';
 import { LanguageToolEngine } from './engines/lt-engine.js';
 import { OllamaEngine } from './engines/ollama-engine.js';
+import { contextCheck } from './engines/context-rules.js';
 import { textStats, overallScore, fleschLabel } from './stats.js';
 import { store, DEMO_TEXT } from './store.js';
+import { NAMES } from '../data/names.js';
+
+const NAMES_SET = new Set(NAMES);
 
 const $ = (id) => document.getElementById(id);
 
@@ -25,15 +29,19 @@ let settings = store.getSettings();
 let dictionary = store.getDictionary();
 let currentDoc = null;
 let findings = [];       // merged, rendered findings
-let llmFindings = [];    // sticky AI clarity findings (revalidated each cycle)
+let llmFindings = [];    // sticky AI findings (revalidated each cycle)
 let ltFindings = [];
 let harperFindings = [];
+let ctxFindings = [];    // instant context-rule findings
 let activeTab = 'all';
 let expandedId = null;
 let lintSeq = 0;
 let lintTimer = null;
 let lastText = '';       // text as of the last findings update, for offset shifting
 let popupFinding = null; // finding currently shown in the inline popup
+const aiGrammarCache = new Map(); // paragraph text -> AI grammar errors
+let aiGrammarTimer = null;
+let aiGrammarBusy = false;
 
 const editor = new Editor($('editor'));
 const harper = new HarperEngine();
@@ -62,7 +70,7 @@ async function init() {
   // Harper (always-on tier)
   setPill('pill-harper', 'loading');
   try {
-    await harper.init(settings.dialect, dictionary);
+    await harper.init(settings.dialect, [...NAMES, ...dictionary]);
     setPill('pill-harper', 'on');
   } catch (err) {
     console.error('Harper failed to load', err);
@@ -96,8 +104,10 @@ async function probeOptionalEngines() {
     setPill('pill-lt', 'off');
   }
   if (settings.aiOn) {
+    const aiWas = ollama.available;
     await ollama.probe(settings.model);
     setPill('pill-ai', ollama.available ? 'on' : 'off');
+    if (ollama.available && !aiWas) scheduleAiGrammar();
     if (!ollama.available) {
       $('pill-ai').title = hosted
         ? 'AI features run in the local app. This hosted version checks with Harper only.'
@@ -165,13 +175,14 @@ function openDoc(id, { skipSave } = {}) {
   $('doc-title').value = currentDoc.title;
   editor.setText(store.getText(id));
   lastText = editor.getText();
-  llmFindings = []; ltFindings = []; harperFindings = []; findings = [];
+  llmFindings = []; ltFindings = []; harperFindings = []; ctxFindings = []; findings = [];
   renderCards();
   hidePopup();
   $('pinned-cards').innerHTML = '';
   $('tone-chips').hidden = true;
   loadDocList();
   scheduleLint(0);
+  scheduleAiGrammar();
   updateStats();
 }
 
@@ -211,6 +222,7 @@ function shiftFindingsForEdit(oldText, newText) {
   harperFindings = shift(harperFindings);
   ltFindings = shift(ltFindings);
   llmFindings = shift(llmFindings);
+  ctxFindings = shift(ctxFindings);
 }
 
 function scheduleLint(delay = 450) {
@@ -222,6 +234,10 @@ async function runLint() {
   const seq = ++lintSeq;
   const text = editor.getText();
   updateStats();
+
+  // Context rules are pure JS: instant, run every cycle.
+  ctxFindings = contextCheck(text);
+  mergeAndRender(text);
 
   // Harper first (fast)
   if (harper.ready) {
@@ -279,9 +295,14 @@ function mergeAndRender(text) {
 
   const ignored = new Set(store.getIgnored(currentDoc.id));
   const dictSet = new Set(dictionary.map(w => w.toLowerCase()));
-  let all = [...harperFindings, ...ltFindings]
+  const isSpelling = (f) => f.ruleId.startsWith('harper:Spelling') || f.ruleId.includes('MORFOLOGIK');
+  const isKnownName = (f) => {
+    const w = f.problem.replace(/[^A-Za-z'-]/g, '').replace(/'s$/, '');
+    return NAMES_SET.has(w);
+  };
+  let all = [...harperFindings, ...ltFindings, ...ctxFindings]
     .filter(f => !ignored.has(fingerprint(f)))
-    .filter(f => !(f.ruleId.startsWith('harper:Spelling') && dictSet.has(f.problem.toLowerCase())));
+    .filter(f => !(isSpelling(f) && (dictSet.has(f.problem.toLowerCase()) || isKnownName(f))));
 
   // Dedupe overlapping findings across engines: one card per text span,
   // keeping the most severe category (then the more useful finding).
@@ -300,9 +321,13 @@ function mergeAndRender(text) {
       ));
     if (better) kept[i] = f;
   }
-  // AI rewrites are sentence-level, a different granularity than word-level
-  // lints, so they coexist with them instead of competing in the dedupe.
-  kept.push(...llmFindings.filter(f => !ignored.has(fingerprint(f))));
+  // AI clarity rewrites are sentence-level, a different granularity than
+  // word-level lints, so they coexist instead of competing in the dedupe.
+  // AI grammar findings ARE word-level: the rule engines win overlaps.
+  kept.push(...llmFindings
+    .filter(f => !ignored.has(fingerprint(f)))
+    .filter(f => f.ruleId !== 'llm:grammar' ||
+      !kept.some(k => Math.max(k.start, f.start) < Math.min(k.end, f.end))));
   kept.sort((a, b) => a.start - b.start);
   kept.forEach((f, i) => { f.id = i; });
   findings = kept;
@@ -563,6 +588,78 @@ function aiProgress(text) {
   if (text) $('ai-progress-text').textContent = text;
 }
 
+// ---------- automatic AI proofread (local app only) ----------
+// After a typing pause, the local model quietly checks changed paragraphs for
+// real-word errors the rule engines cannot see. Results are cached per
+// paragraph so unchanged text is never re-checked. (State lives up top with
+// the rest, declarations must precede init's first call.)
+function scheduleAiGrammar() {
+  clearTimeout(aiGrammarTimer);
+  aiGrammarTimer = setTimeout(runAiGrammar, 3000);
+}
+
+function currentParagraphs(text) {
+  const paras = [];
+  let offset = 0;
+  for (const part of text.split('\n')) {
+    if (part.trim().split(/\s+/).length >= 6) paras.push({ text: part, offset });
+    offset += part.length + 1;
+  }
+  return paras;
+}
+
+async function runAiGrammar() {
+  if (!ollama.available || !settings.aiOn || !settings.aiAuto || aiGrammarBusy) return;
+  aiGrammarBusy = true;
+  const showProgress = $('ai-progress').hidden;
+  let morePending = false;
+  try {
+    const text = editor.getText();
+    const paras = currentParagraphs(text);
+    let checked = 0;
+    for (const p of paras) {
+      if (aiGrammarCache.has(p.text)) continue;
+      if (checked >= 3) { morePending = true; continue; } // a few per pass, stay responsive
+      if (showProgress) aiProgress('AI proofreading...');
+      let errs;
+      try {
+        errs = await ollama.grammarCheck(p.text);
+      } catch (err) {
+        console.error('ai grammar failed', err);
+        break;
+      }
+      checked++;
+      aiGrammarCache.set(p.text, errs);
+      if (aiGrammarCache.size > 400) aiGrammarCache.delete(aiGrammarCache.keys().next().value);
+      if (editor.getText() !== text) { morePending = true; break; } // doc moved on
+    }
+    // Rebuild AI grammar findings from cache against the current text.
+    const cur = editor.getText();
+    const grammar = [];
+    for (const p of currentParagraphs(cur)) {
+      for (const e of aiGrammarCache.get(p.text) || []) {
+        grammar.push({
+          engine: 'llm',
+          start: p.offset + e.offset,
+          end: p.offset + e.offset + e.length,
+          category: 'correctness',
+          kindLabel: 'AI grammar',
+          message: e.reason,
+          problem: e.original,
+          replacements: [{ text: e.corrected, kind: 0 }],
+          ruleId: 'llm:grammar',
+        });
+      }
+    }
+    llmFindings = [...llmFindings.filter(f => f.ruleId !== 'llm:grammar'), ...grammar];
+    mergeAndRender(cur);
+  } finally {
+    aiGrammarBusy = false;
+    if (showProgress) aiProgress(null);
+    if (morePending) scheduleAiGrammar();
+  }
+}
+
 // ---------- selection rewrite toolbar ----------
 let selRange = null;
 document.addEventListener('selectionchange', () => {
@@ -654,6 +751,7 @@ function openSettings() {
   $('set-ollama-url').value = settings.ollamaUrl;
   $('set-lt-on').checked = settings.ltOn;
   $('set-ai-on').checked = settings.aiOn;
+  $('set-ai-auto').checked = settings.aiAuto;
   const sel = $('set-model');
   sel.innerHTML = '<option value="">(auto-detect)</option>';
   for (const m of ollama.models) {
@@ -704,6 +802,7 @@ async function saveSettings() {
     model: $('set-model').value,
     ltOn: $('set-lt-on').checked,
     aiOn: $('set-ai-on').checked,
+    aiAuto: $('set-ai-auto').checked,
   };
   store.saveSettings(settings);
   lt.baseUrl = settings.ltUrl.replace(/\/$/, '');
@@ -733,6 +832,7 @@ function wireUi() {
     mergeAndRender(newText); // instant update, no stale underlines
     saveCurrentDebounced();
     scheduleLint();
+    scheduleAiGrammar();
     hidePopup();
   };
   editor.onCaretOnLint = (f) => { if (f) showPopup(f); else { hidePopup(); editor.unfocus(); } };

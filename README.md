@@ -16,6 +16,18 @@ The app detects which engines are running and lights up the pills in the top bar
 
 Documents autosave to the browser's local storage. Suggestions show as colored underlines (red = correctness, blue = clarity, green = engagement, purple = delivery), same idea as Grammarly. Click an underline or a card to accept a fix, dismiss it, or add a word to your personal dictionary.
 
+## For the team (non-technical setup)
+
+You don't need to be a developer to run the full version:
+
+1. Install Python from https://www.python.org/downloads/ if you don't have it (on Windows, check "Add python.exe to PATH" during install).
+2. On this repo's GitHub page, click the green **Code** button, then **Download ZIP**. Unzip it anywhere (Desktop is fine).
+3. **Windows:** double-click `Setup-StickyWrite.bat` once (downloads the deeper grammar engine, ~350MB), then `Start-StickyWrite.bat` every time you want to write.
+   **Mac:** open Terminal in the folder and run `python3 scripts/setup.py` once, then `python3 scripts/start.py` (or double-click `start-stickywrite.command`).
+4. Optional, for the AI features: install [Ollama](https://ollama.com/download) and run `ollama pull gemma3:4b`.
+
+Your documents stay on your own computer. Nobody else, including whoever shared this with you, can see them.
+
 ## First-time setup
 
 Requirements: Python 3.9+ (for the two scripts, nothing else).

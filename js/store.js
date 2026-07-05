@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = {
   model: '',
   ltOn: true,
   aiOn: true,
+  aiAuto: true,
 };
 
 export const store = {

@@ -12,7 +12,7 @@ export function textStats(text) {
     words: wordCount,
     chars: text.length,
     sentences,
-    readMinutes: Math.max(1, Math.round(wordCount / 230)),
+    readMinutes: wordCount ? Math.max(1, Math.round(wordCount / 230)) : 0,
     flesch: flesch == null ? null : Math.max(0, Math.min(100, flesch)),
   };
 }

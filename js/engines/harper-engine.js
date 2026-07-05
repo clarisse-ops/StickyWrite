@@ -34,6 +34,13 @@ export class HarperEngine {
     if (this.linter && words.length) await this.linter.importWords(words);
   }
 
+  // Rebuild the user dictionary (needed when a word is removed).
+  async resetWords(words) {
+    if (!this.linter) return;
+    await this.linter.clearWords();
+    if (words.length) await this.linter.importWords(words);
+  }
+
   async check(text) {
     if (!this.ready || !text.trim()) return [];
     const lints = await this.linter.lint(text, { language: 'plaintext' });

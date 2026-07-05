@@ -19,7 +19,22 @@ export class Editor {
 
   setText(text) {
     this.el.textContent = text;
+    this._ensureTrailingBr();
+    this._updateEmpty();
     this.clearHighlights();
+  }
+
+  // A trailing <br> makes a document-final newline actually render as a new
+  // line (otherwise Enter at the end of the doc looks like it did nothing).
+  // textContent ignores <br>, so text offsets are unaffected.
+  _ensureTrailingBr() {
+    const last = this.el.lastChild;
+    if (!last || last.nodeName !== 'BR') this.el.appendChild(document.createElement('br'));
+  }
+
+  _updateEmpty() {
+    if (this.getText() === '') this.el.setAttribute('data-empty', '');
+    else this.el.removeAttribute('data-empty');
   }
 
   // Walk text nodes, returning [node, offsetInNode] for a global char offset.
@@ -120,8 +135,22 @@ export class Editor {
     this.el.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
+        // Chrome can leave the caret BEFORE a newline inserted at the end of
+        // the document, which makes Enter feel broken. Place it explicitly.
+        const before = this._caretOffset();
         document.execCommand('insertText', false, '\n');
+        if (before != null && this._caretOffset() !== before + 1) {
+          this._setCaret(before + 1);
+        }
+        return;
       }
+      // Plain-text editor: swallow rich-formatting shortcuts (Ctrl/Cmd+B/I/U).
+      if ((e.ctrlKey || e.metaKey) && ['b', 'i', 'u'].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+      }
+    });
+    this.el.addEventListener('beforeinput', (e) => {
+      if (e.inputType && e.inputType.startsWith('format')) e.preventDefault();
     });
     this.el.addEventListener('paste', (e) => {
       e.preventDefault();
@@ -136,6 +165,8 @@ export class Editor {
         this.el.textContent = text;
         if (caret != null) this._setCaret(Math.min(caret, text.length));
       }
+      this._ensureTrailingBr();
+      this._updateEmpty();
       this.onChange?.();
     });
     this.el.addEventListener('click', (e) => {

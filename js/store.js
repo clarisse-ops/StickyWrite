@@ -94,8 +94,10 @@ export const store = {
 
 export const DEMO_TEXT = `Welcome to StickyWrite, you're private writing assistant.
 
-This demo document has a few mistake in it on purpose. Click any underlined word too see what StickyWrite suggests, then accept the fix or dismiss it.
+This demo document has a few mistakes in it on purpose. Click any underlined word too see what StickyWrite suggests, then accept the fix or dismiss it.
 
-Their are three engines under the hood. Harper runs instantly in you're browser. LanguageTool digs deeper when its running on this machine, and a local AI model can rewrite hole sentences for clarity and tone.
+Their are three engines under the hood, and the pills at the top show which ones are awake right now. Harper runs instantly in you're browser and never sends your text anywhere. The the other two are optional: LanguageTool adds deeper grammar rules, and a local AI model can rewrite whole sentences.
 
-Try typing you own text hear, or paste something your working on. The the suggestions update as you write.`;
+If a pill is gray, that engine is not running on this computer. The app still works fine without it, you just get fewer kinds of suggestions.
+
+Try typing here, or paste something your working on. The suggestions update as you write.`;

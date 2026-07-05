@@ -29,11 +29,12 @@ export class LanguageToolEngine {
   async check(text, dialectName = 'American', dictWords = []) {
     if (!this.available || !text.trim()) return [];
     const lang = { American: 'en-US', British: 'en-GB', Australian: 'en-AU', Canadian: 'en-CA' }[dialectName] || 'en-US';
+    // Default level (picky adds noisy typography rules, e.g. dash conversions).
     const body = new URLSearchParams({
       text: text.slice(0, 60000),
       language: lang,
-      level: 'picky',
       enabledOnly: 'false',
+      disabledCategories: 'TYPOGRAPHY',
     });
     let data;
     try {

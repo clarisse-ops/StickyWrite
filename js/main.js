@@ -32,6 +32,8 @@ let activeTab = 'all';
 let expandedId = null;
 let lintSeq = 0;
 let lintTimer = null;
+let lastText = '';       // text as of the last findings update, for offset shifting
+let popupFinding = null; // finding currently shown in the inline popup
 
 const editor = new Editor($('editor'));
 const harper = new HarperEngine();
@@ -76,10 +78,18 @@ async function init() {
 }
 
 async function probeOptionalEngines() {
+  // On a hosted (https) copy, browsers block reaching servers on the visitor's
+  // machine, so the deeper tiers only run in the local app. Say so in the UI.
+  const hosted = location.protocol === 'https:';
   if (settings.ltOn) {
     const was = lt.available;
     await lt.probe();
     setPill('pill-lt', lt.available ? 'on' : 'off');
+    if (!lt.available) {
+      $('pill-lt').title = hosted
+        ? 'LanguageTool runs in the local app. This hosted version checks with Harper only.'
+        : 'LanguageTool is not running. Start it with: python scripts/start.py';
+    }
     if (lt.available && !was) scheduleLint(0);
   } else {
     lt.available = false;
@@ -88,6 +98,11 @@ async function probeOptionalEngines() {
   if (settings.aiOn) {
     await ollama.probe(settings.model);
     setPill('pill-ai', ollama.available ? 'on' : 'off');
+    if (!ollama.available) {
+      $('pill-ai').title = hosted
+        ? 'AI features run in the local app. This hosted version checks with Harper only.'
+        : 'Local AI is not running. Install Ollama and pull a model to switch it on.';
+    }
     $('pill-ai').lastChild.textContent = ollama.available && ollama.model
       ? 'AI · ' + ollama.model.split(':')[0] : 'AI';
     $('ai-bar').hidden = !ollama.available;
@@ -106,7 +121,7 @@ function setPill(id, state) {
 
 // ---------- documents ----------
 function loadDocList() {
-  const list = store.listDocs();
+  const list = store.listDocs().sort((a, b) => (b.updated || 0) - (a.updated || 0));
   const ul = $('doc-list');
   ul.innerHTML = '';
   for (const d of list) {
@@ -121,7 +136,13 @@ function loadDocList() {
     del.title = 'Delete';
     del.onclick = (e) => {
       e.stopPropagation();
-      if (!confirm(`Delete "${d.title}"?`)) return;
+      // Two-step inline confirm (no browser dialogs).
+      if (!del.dataset.armed) {
+        del.dataset.armed = '1';
+        del.textContent = 'Sure?';
+        setTimeout(() => { del.dataset.armed = ''; del.textContent = '✕'; }, 2500);
+        return;
+      }
       store.deleteDoc(d.id);
       if (d.id === currentDoc?.id) {
         const rest = store.listDocs();
@@ -129,6 +150,7 @@ function loadDocList() {
         openDoc(currentDoc.id, { skipSave: true });
       }
       loadDocList();
+      toast(`Deleted "${d.title || 'Untitled document'}"`);
     };
     li.append(name, del);
     li.onclick = () => { if (d.id !== currentDoc.id) { saveCurrent(); openDoc(d.id); } };
@@ -142,21 +164,55 @@ function openDoc(id, { skipSave } = {}) {
   if (!currentDoc) return;
   $('doc-title').value = currentDoc.title;
   editor.setText(store.getText(id));
+  lastText = editor.getText();
   llmFindings = []; ltFindings = []; harperFindings = []; findings = [];
   renderCards();
   hidePopup();
+  $('pinned-cards').innerHTML = '';
   $('tone-chips').hidden = true;
   loadDocList();
   scheduleLint(0);
   updateStats();
 }
 
+let quotaWarned = false;
 function saveCurrent() {
   if (!currentDoc) return;
-  store.saveDoc(currentDoc.id, { title: $('doc-title').value, text: editor.getText() });
+  try {
+    store.saveDoc(currentDoc.id, { title: $('doc-title').value, text: editor.getText() });
+  } catch (err) {
+    console.error('save failed', err);
+    if (!quotaWarned) {
+      quotaWarned = true;
+      toast('Browser storage is full. Export your documents, then delete old ones.');
+    }
+  }
 }
 
 // ---------- linting ----------
+
+// The moment the text changes, shift every finding to its new position (or
+// drop it if the edit touched it). Underlines and cards stay truthful even
+// before the engines re-check, and accepting a fix can never land on stale
+// coordinates.
+function shiftFindingsForEdit(oldText, newText) {
+  if (oldText === newText) return;
+  let p = 0;
+  const minLen = Math.min(oldText.length, newText.length);
+  while (p < minLen && oldText[p] === newText[p]) p++;
+  let oldEnd = oldText.length, newEnd = newText.length;
+  while (oldEnd > p && newEnd > p && oldText[oldEnd - 1] === newText[newEnd - 1]) { oldEnd--; newEnd--; }
+  const delta = newEnd - oldEnd;
+  const shift = (arr) => arr.filter(f => {
+    if (f.end <= p) return true;
+    if (f.start >= oldEnd) { f.start += delta; f.end += delta; return true; }
+    return false; // the edit overlapped this finding: it is stale, drop it now
+  });
+  harperFindings = shift(harperFindings);
+  ltFindings = shift(ltFindings);
+  llmFindings = shift(llmFindings);
+}
+
 function scheduleLint(delay = 450) {
   clearTimeout(lintTimer);
   lintTimer = setTimeout(runLint, delay);
@@ -281,13 +337,23 @@ function renderCards() {
   findings.forEach(f => counts[f.category]++);
   for (const [cat, n] of Object.entries(counts)) $('count-' + cat).textContent = n;
 
+  $('fab-count').textContent = findings.length;
+
   const wrap = $('cards');
   wrap.innerHTML = '';
   const visible = findings.filter(f => activeTab === 'all' || f.category === activeTab);
-  $('empty-state').style.display = visible.length ? 'none' : 'block';
+  const pinned = $('pinned-cards').children.length;
+  $('empty-state').style.display = (visible.length || pinned) ? 'none' : 'block';
 
-  for (const f of visible) {
+  const CAP = 150;
+  for (const f of visible.slice(0, CAP)) {
     wrap.appendChild(buildCard(f, false));
+  }
+  if (visible.length > CAP) {
+    const more = document.createElement('div');
+    more.className = 'cards-more';
+    more.textContent = `Showing the first ${CAP} of ${visible.length} suggestions. Fix a few and more will load.`;
+    wrap.appendChild(more);
   }
 }
 
@@ -321,7 +387,12 @@ function buildCard(f, isPopup) {
     const rep = document.createElement('span');
     rep.className = 'replacement';
     const r0 = f.replacements[0];
-    rep.textContent = r0.kind === 1 ? 'Remove' : truncate(r0.text || 'Remove', 60);
+    if (r0.kind === 2) {                 // InsertAfter: show the result, not "word → ,"
+      prob.classList.remove('problem');  // nothing is being removed
+      rep.textContent = truncate(f.problem + r0.text, 60);
+    } else {
+      rep.textContent = r0.kind === 1 ? 'Remove' : truncate(r0.text || 'Remove', 60);
+    }
     fix.append(arrow, rep);
   }
 
@@ -334,7 +405,9 @@ function buildCard(f, isPopup) {
   f.replacements.slice(0, 3).forEach((r, i) => {
     const b = document.createElement('button');
     b.className = 'rep-btn' + (i > 0 ? ' secondary' : '');
-    b.textContent = r.kind === 1 ? 'Remove' : (r.text === '' ? 'Remove' : truncate(r.text, 40));
+    b.textContent = r.kind === 2 ? `Insert "${truncate(r.text, 20)}"`
+      : r.kind === 1 || r.text === '' ? 'Remove'
+      : truncate(r.text, 40);
     b.onclick = (e) => { e.stopPropagation(); acceptFinding(f, r); };
     actions.appendChild(b);
   });
@@ -370,6 +443,18 @@ function truncate(s, n) {
 function acceptFinding(f, r) {
   hidePopup();
   editor.unfocus();
+  // Belt and suspenders: confirm the finding still points at its text.
+  const cur = editor.getText();
+  if (cur.substring(f.start, f.end) !== f.problem) {
+    const first = cur.indexOf(f.problem);
+    if (first === -1 || cur.indexOf(f.problem, first + 1) !== -1) {
+      toast('That text just changed, rechecking...');
+      scheduleLint(0);
+      return;
+    }
+    f.start = first;
+    f.end = first + f.problem.length;
+  }
   let ok;
   if (r.kind === 2) ok = editor.insertAt(f.end, r.text);        // InsertAfter
   else ok = editor.replaceRange(f.start, f.end, r.kind === 1 ? '' : r.text);
@@ -398,23 +483,31 @@ async function addToDictionary(f) {
 
 // ---------- popup ----------
 function showPopup(f) {
+  popupFinding = f;
   const pop = $('popup-card');
   pop.innerHTML = '';
   pop.appendChild(buildCard(f, true));
   pop.hidden = false;
+  if (!positionPopup(f)) return;
+  editor.focusFinding(f);
+}
+
+function positionPopup(f) {
+  const pop = $('popup-card');
   const rect = editor.findingRect(f);
-  if (!rect) { pop.hidden = true; return; }
+  if (!rect) { hidePopup(); return false; }
   const pw = 320, ph = pop.offsetHeight || 160;
-  let x = Math.min(Math.max(12, rect.left), window.innerWidth - pw - 12);
+  const x = Math.min(Math.max(12, rect.left), window.innerWidth - pw - 12);
   let y = rect.bottom + 8;
   if (y + ph > window.innerHeight - 12) y = rect.top - ph - 8;
   pop.style.left = x + 'px';
   pop.style.top = Math.max(64, y) + 'px';
-  editor.focusFinding(f);
+  return true;
 }
 
 function hidePopup() {
   $('popup-card').hidden = true;
+  popupFinding = null;
 }
 
 // ---------- AI features ----------
@@ -509,7 +602,7 @@ async function rewriteSelection(mode) {
 }
 
 function showRewriteCard(original, revision, start, end, mode) {
-  const wrap = $('cards');
+  const wrap = $('pinned-cards'); // survives card re-renders until acted on
   const card = document.createElement('div');
   card.className = 'card expanded';
   card.innerHTML = `
@@ -586,7 +679,17 @@ function renderDictWords() {
     chip.textContent = w;
     const x = document.createElement('button');
     x.textContent = '✕';
-    x.onclick = () => { dictionary = store.removeDictionaryWord(w); renderDictWords(); toast('Removed. Takes effect after reload.'); };
+    x.onclick = async () => {
+      dictionary = store.removeDictionaryWord(w);
+      renderDictWords();
+      try {
+        await harper.resetWords(dictionary);
+        toast(`"${w}" removed from your dictionary`);
+        scheduleLint(0);
+      } catch {
+        toast('Removed. Reload the page to fully apply.');
+      }
+    };
     chip.appendChild(x);
     wrap.appendChild(chip);
   }
@@ -623,10 +726,68 @@ function toast(msg) {
 }
 
 function wireUi() {
-  editor.onChange = () => { saveCurrentDebounced(); scheduleLint(); hidePopup(); };
+  editor.onChange = () => {
+    const newText = editor.getText();
+    shiftFindingsForEdit(lastText, newText);
+    lastText = newText;
+    mergeAndRender(newText); // instant update, no stale underlines
+    saveCurrentDebounced();
+    scheduleLint();
+    hidePopup();
+  };
   editor.onCaretOnLint = (f) => { if (f) showPopup(f); else { hidePopup(); editor.unfocus(); } };
 
   $('btn-docs').onclick = () => $('docs-drawer').classList.toggle('hidden-drawer');
+  $('btn-export-all').onclick = () => {
+    saveCurrent();
+    const backup = {
+      exported: new Date().toISOString(),
+      documents: store.listDocs().map(d => ({ title: d.title, updated: d.updated, text: store.getText(d.id) })),
+      dictionary: store.getDictionary(),
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'stickywrite-backup.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('Backup downloaded');
+  };
+  $('btn-mobile-suggest').onclick = () => {
+    document.querySelector('.suggest-panel').classList.toggle('open');
+  };
+  // Keep the inline popup glued to its word while the page scrolls.
+  document.querySelector('.page-scroll').addEventListener('scroll', () => {
+    if (!popupFinding) return;
+    const rect = editor.findingRect(popupFinding);
+    if (!rect || rect.bottom < 70 || rect.top > window.innerHeight - 60) {
+      hidePopup();
+      editor.unfocus();
+      return;
+    }
+    positionPopup(popupFinding);
+  }, { passive: true });
+  // Another tab changed our data: refresh the list, and the open doc if safe.
+  window.addEventListener('storage', (e) => {
+    if (!e.key || !e.key.startsWith('sw:')) return;
+    loadDocList();
+    if (currentDoc && e.key === 'sw:text:' + currentDoc.id) {
+      const stored = store.getText(currentDoc.id);
+      if (stored !== editor.getText()) {
+        if (document.activeElement !== $('editor')) {
+          editor.setText(stored);
+          lastText = stored;
+          harperFindings = []; ltFindings = []; llmFindings = [];
+          mergeAndRender(stored);
+          scheduleLint(0);
+          updateStats();
+          toast('Document updated from another tab');
+        } else {
+          toast('Heads up: this document is also open in another tab');
+        }
+      }
+    }
+  });
   $('btn-new-doc').onclick = () => {
     saveCurrent();
     currentDoc = store.createDoc();

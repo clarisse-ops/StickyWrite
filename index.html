@@ -41,7 +41,10 @@
   <aside class="docs-drawer" id="docs-drawer">
     <div class="drawer-head">
       <span>Documents</span>
-      <button class="btn small" id="btn-new-doc">+ New</button>
+      <span class="drawer-actions">
+        <button class="btn small" id="btn-export-all" title="Download all documents as a backup file">Export</button>
+        <button class="btn small" id="btn-new-doc">+ New</button>
+      </span>
     </div>
     <ul id="doc-list"></ul>
   </aside>
@@ -77,6 +80,7 @@
     <div class="ai-progress" id="ai-progress" hidden><span class="spinner"></span><span id="ai-progress-text">Thinking...</span></div>
 
     <div class="cards-scroll">
+      <div id="pinned-cards"></div>
       <div id="cards"></div>
       <div class="empty-state" id="empty-state">
         <div class="empty-emoji">🕵️</div>
@@ -141,6 +145,8 @@
     </div>
   </div>
 </div>
+
+<button class="mobile-fab" id="btn-mobile-suggest" title="Suggestions"><span id="fab-count">0</span></button>
 
 <div class="toast" id="toast" hidden></div>
 

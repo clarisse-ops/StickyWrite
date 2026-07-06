@@ -22,7 +22,8 @@ export class LanguageToolEngine {
     this.available = false;
     this.mode = 'off';          // 'local' | 'cloud' | 'off'
     this.cloudEnabled = true;
-    this._cloudOk = null;       // cached cloud reachability (probe once)
+    this._cloudOk = null;       // cached cloud reachability
+    this._cloudProbedAt = 0;
     this._lastCloudCall = 0;
   }
 
@@ -41,7 +42,9 @@ export class LanguageToolEngine {
     } catch { /* no local server */ }
 
     if (this.cloudEnabled) {
-      if (this._cloudOk === null) {
+      // Re-probe a failed cloud every 5 minutes instead of giving up forever.
+      if (this._cloudOk === null || (!this._cloudOk && Date.now() - this._cloudProbedAt > 300000)) {
+        this._cloudProbedAt = Date.now();
         try {
           const res = await fetch(CLOUD_BASE + '/v2/languages', { signal: AbortSignal.timeout(5000) });
           this._cloudOk = res.ok;

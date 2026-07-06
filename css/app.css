@@ -245,6 +245,11 @@ button { font-family: inherit; cursor: pointer; }
   padding: 14px 16px;
 }
 
+.popup-head { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.sent-diff { font-size: 14.5px; line-height: 1.65; margin-bottom: 4px; }
+.sent-diff del { color: var(--correctness); text-decoration: line-through; }
+.sent-diff strong { color: #2563eb; font-weight: 700; }
+
 /* ---------- Selection toolbar ---------- */
 .sel-toolbar {
   position: fixed; z-index: 55;

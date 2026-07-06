@@ -565,11 +565,134 @@ async function addToDictionary(f) {
 }
 
 // ---------- popup ----------
+
+// Find the sentence containing a position (newlines and ./!/? end sentences).
+function sentenceRangeAt(text, pos) {
+  let start = 0;
+  for (let i = Math.min(pos, text.length) - 1; i >= 0; i--) {
+    const c = text[i];
+    if (c === '\n') { start = i + 1; break; }
+    if ((c === '.' || c === '!' || c === '?') && /\s/.test(text[i + 1] || ' ')) { start = i + 1; break; }
+  }
+  while (start < text.length && /\s/.test(text[start])) start++;
+  let end = text.length;
+  for (let i = Math.max(pos, start); i < text.length; i++) {
+    const c = text[i];
+    if (c === '\n') { end = i; break; }
+    if ((c === '.' || c === '!' || c === '?') && /\s|^$/.test(text[i + 1] || '')) { end = i + 1; break; }
+  }
+  return { start, end };
+}
+
+// All fixable word-level findings inside the sentence around f.
+function sentenceFindings(f) {
+  const text = editor.getText();
+  const rng = sentenceRangeAt(text, f.start);
+  const list = findings.filter(x =>
+    x.start >= rng.start && x.end <= rng.end &&
+    x.replacements.length && x.ruleId !== 'llm:clarity');
+  return { rng, list };
+}
+
+// Trim words shared by problem and replacement so the diff highlights only
+// what actually changes ("better clients then" -> "than", not the phrase).
+function trimToChange(problem, replacement) {
+  const p = problem.split(/(\s+)/);
+  const r = replacement.split(/(\s+)/);
+  let lead = 0;
+  while (lead < p.length && lead < r.length && p[lead] === r[lead]) lead++;
+  let pEnd = p.length, rEnd = r.length;
+  while (pEnd > lead && rEnd > lead && p[pEnd - 1] === r[rEnd - 1]) { pEnd--; rEnd--; }
+  return {
+    lead: p.slice(0, lead).join(''),
+    oldCore: p.slice(lead, pEnd).join(''),
+    newCore: r.slice(lead, rEnd).join(''),
+    tail: p.slice(pEnd).join(''),
+  };
+}
+
+// The corrected sentence as an inline diff: strikethrough old, bold new.
+function buildSentenceDiff(text, rng, list) {
+  const div = document.createElement('div');
+  div.className = 'sent-diff';
+  let cur = rng.start;
+  for (const f of [...list].sort((a, b) => a.start - b.start)) {
+    div.append(document.createTextNode(text.slice(cur, f.start)));
+    const r = f.replacements[0];
+    if (r.kind === 2) {                       // InsertAfter
+      div.append(document.createTextNode(f.problem));
+      const ins = document.createElement('strong');
+      ins.textContent = r.text;
+      div.append(ins);
+    } else {
+      const t = trimToChange(f.problem, r.kind === 1 ? '' : r.text);
+      if (t.lead) div.append(document.createTextNode(t.lead));
+      if (t.oldCore) {
+        const del = document.createElement('del');
+        del.textContent = t.oldCore;
+        div.append(del);
+      }
+      if (t.newCore) {
+        if (t.oldCore) div.append(document.createTextNode(' '));
+        const ins = document.createElement('strong');
+        ins.textContent = t.newCore;
+        div.append(ins);
+      }
+      if (t.tail) div.append(document.createTextNode(t.tail));
+    }
+    cur = f.end;
+  }
+  div.append(document.createTextNode(text.slice(cur, rng.end)));
+  return div;
+}
+
+function acceptSentence(list) {
+  hidePopup();
+  editor.unfocus();
+  let applied = 0;
+  for (const f of [...list].sort((a, b) => b.start - a.start)) {
+    const cur = editor.getText();
+    if (cur.substring(f.start, f.end) !== f.problem) continue;
+    const r = f.replacements[0];
+    const ok = r.kind === 2
+      ? editor.insertAt(f.end, r.text)
+      : editor.replaceRange(f.start, f.end, r.kind === 1 ? '' : r.text);
+    if (ok) applied++;
+  }
+  saveCurrent();
+  scheduleLint(80);
+  toast(`Sentence corrected (${applied} fix${applied === 1 ? '' : 'es'})`);
+}
+
 function showPopup(f) {
   popupFinding = f;
   const pop = $('popup-card');
   pop.innerHTML = '';
-  pop.appendChild(buildCard(f, true));
+
+  // Grammarly-style: several fixes in one sentence become one card.
+  const { rng, list } = sentenceFindings(f);
+  if (list.length >= 2) {
+    const head = document.createElement('div');
+    head.className = 'popup-head';
+    head.textContent = 'Correct the sentence';
+    const diff = buildSentenceDiff(editor.getText(), rng, list);
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    actions.style.display = 'flex';
+    const accept = document.createElement('button');
+    accept.className = 'rep-btn';
+    accept.textContent = `Accept all (${list.length})`;
+    accept.onclick = () => acceptSentence(list);
+    const close = document.createElement('button');
+    close.className = 'link-btn';
+    close.textContent = 'Close';
+    close.onclick = () => { hidePopup(); editor.unfocus(); };
+    actions.append(accept, close);
+    pop.append(head, diff, actions);
+  } else {
+    pop.appendChild(buildCard(f, true));
+  }
+
   pop.hidden = false;
   if (!positionPopup(f)) return;
   editor.focusFinding(f);

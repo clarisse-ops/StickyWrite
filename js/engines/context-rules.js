@@ -27,6 +27,13 @@ const RULES = [
     message: '"Their" shows ownership. Before "is" or "are", you want "there".',
   },
   {
+    id: 'there-comparative',
+    // "because there easier to work with" -> they're
+    re: /\bthere(?=\s+(?:easier|harder|better|worse|faster|slower|cheaper|simpler|stronger|weaker|nicer|smarter|quicker|calmer|friendlier|happier)\b)/gi,
+    fix: (m) => (m[0] === 'T' ? "They're" : "they're"),
+    message: 'This looks like "they are", which is spelled "they\'re".',
+  },
+  {
     id: 'there-own',
     re: /\bthere(?=\s+own\b)/gi,
     fix: (m) => (m[0] === 'T' ? 'Their' : 'their'),

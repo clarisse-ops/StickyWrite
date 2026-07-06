@@ -215,6 +215,11 @@ export class Editor {
     sel.addRange(r);
   }
 
+  // Public: char offset for a viewport point (used for hover cards).
+  offsetAtPoint(x, y) {
+    return this._pointOffset(x, y);
+  }
+
   _pointOffset(x, y) {
     let node, off;
     if (document.caretPositionFromPoint) {

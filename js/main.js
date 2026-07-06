@@ -1122,6 +1122,41 @@ function wireUi() {
       editor.unfocus();
     }
   });
+
+  // Hover cards, like Grammarly: rest the mouse on an underline and the card
+  // appears; it stays while the mouse is inside it, and fades when you leave.
+  let hoverTimer = null, hideTimer = null, popupHovered = false, lastHoverMove = 0;
+  const scheduleHide = () => {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (!popupHovered) { hidePopup(); editor.unfocus(); }
+    }, 300);
+  };
+  $('editor').addEventListener('mousemove', (e) => {
+    const now = performance.now();
+    if (now - lastHoverMove < 60) return; // throttle
+    lastHoverMove = now;
+    if (e.buttons !== 0) return;                       // dragging/selecting
+    if (!window.getSelection().isCollapsed) return;    // active selection
+    const off = editor.offsetAtPoint(e.clientX, e.clientY);
+    const hit = off == null ? null : findings.find(f => off >= f.start && off <= f.end);
+    if (hit) {
+      clearTimeout(hideTimer);
+      if (popupFinding !== hit) {
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(() => showPopup(hit), 180);
+      }
+    } else {
+      clearTimeout(hoverTimer);
+      if (popupFinding) scheduleHide();
+    }
+  });
+  $('editor').addEventListener('mouseleave', () => {
+    clearTimeout(hoverTimer);
+    if (popupFinding) scheduleHide();
+  });
+  $('popup-card').addEventListener('mouseenter', () => { popupHovered = true; clearTimeout(hideTimer); });
+  $('popup-card').addEventListener('mouseleave', () => { popupHovered = false; scheduleHide(); });
   window.addEventListener('beforeunload', saveCurrent);
 }
 

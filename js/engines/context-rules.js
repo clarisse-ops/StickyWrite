@@ -89,8 +89,51 @@ const RULES = [
   },
 ];
 
-export function contextCheck(text) {
+// Abbreviations whose trailing period does not end a sentence.
+const ABBREV = new Set([
+  'e.g', 'i.e', 'etc', 'vs', 'mr', 'mrs', 'ms', 'dr', 'st', 'jr', 'sr',
+  'inc', 'ltd', 'co', 'dept', 'est', 'approx', 'min', 'max', 'no',
+  'a.m', 'p.m', 'u.s', 'u.k', 'ph.d',
+]);
+
+// Sentence-start capitalization: ". can you fix it" -> "Can". Function-based
+// because the exceptions (abbreviations, camelCase brands) need real logic.
+function capitalizationCheck(text) {
   const out = [];
+  const push = (start, word) => {
+    // camelCase like iPhone is intentional, leave it alone
+    if (/[A-Z]/.test(word.slice(1))) return;
+    out.push({
+      engine: 'ctx',
+      start,
+      end: start + word.length,
+      category: 'correctness',
+      kindLabel: 'Capitalization',
+      message: 'Sentences start with a capital letter.',
+      problem: word,
+      replacements: [{ text: word[0].toUpperCase() + word.slice(1), kind: 0 }],
+      ruleId: 'ctx:sentence-capital',
+    });
+  };
+  // after ., ! or ? plus whitespace
+  const afterEnd = /([\w.']+)([.!?])\s+([a-z][\w']*)/g;
+  let m;
+  while ((m = afterEnd.exec(text)) !== null) {
+    const before = m[1].toLowerCase().replace(/\.$/, '');
+    if (m[2] === '.' && (ABBREV.has(before) || /^\d+$/.test(before) || before.includes('@'))) continue;
+    if (m[2] === '.' && /\w\.\w/.test(m[1]) && !ABBREV.has(before)) continue; // URLs, domains, file names
+    push(m.index + m[0].length - m[3].length, m[3]);
+  }
+  // at the start of the document or a paragraph
+  const atStart = /(?:^|\n)\s*([a-z][\w']*)/g;
+  while ((m = atStart.exec(text)) !== null) {
+    push(m.index + m[0].length - m[1].length, m[1]);
+  }
+  return out;
+}
+
+export function contextCheck(text) {
+  const out = capitalizationCheck(text);
   for (const rule of RULES) {
     rule.re.lastIndex = 0;
     let m;

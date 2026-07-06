@@ -319,6 +319,7 @@ function mergeAndRender(text) {
   const isSpelling = (f) => f.ruleId.startsWith('harper:Spelling') || f.ruleId.includes('MORFOLOGIK');
   const isKnownName = (f) => {
     const w = f.problem.replace(/[^A-Za-z'-]/g, '').replace(/'s$/, '');
+    if (w === 'I') return true; // "I." at a sentence end confuses spellcheck tokenizers
     return NAMES_SET.has(w) || NAMES_LOWER.has(w.toLowerCase());
   };
   // Context rules first: they are curated for precision, so on a tie they

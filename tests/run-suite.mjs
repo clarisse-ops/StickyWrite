@@ -27,6 +27,19 @@ const CTX_CATCH = [
   ['Thankyou for the quick turnaround.', 'Thankyou', 'Thank you'],
   ['He is taller then me.', 'then', 'than'],
   ['lowercase paragraph starts get flagged.', 'lowercase', 'Lowercase'],
+  ['Your the best designer on the team.', 'Your', "You're"],
+  ["Can you send me you're address today.", "you're", 'your'],
+  ['Whose ready for the launch tomorrow?', 'Whose', "Who's"],
+  ['Theirs no reason to wait until spring.', 'Theirs', "There's"],
+  ['Everyday we post content for clients.', 'Everyday', 'Every day'],
+  ['I checked the whether before the shoot.', 'whether', 'weather'],
+  ['Weather or not we win, we learn.', 'Weather', 'Whether'],
+  ['We want to by the domain this week.', 'by', 'buy'],
+  ['The launch is on monday.', 'monday', 'Monday'],
+  ['We hired a designer in january.', 'january', 'January'],
+  ['The team did good on this project.', 'good', 'well'],
+  ['We brang the invoices to the meeting.', 'brang', 'brought'],
+  ['Please send the report to Sarah and I.', 'I', 'me'],
 ];
 for (const [text, target, expected] of CTX_CATCH) {
   const fs = contextCheck(text);
@@ -34,6 +47,14 @@ for (const [text, target, expected] of CTX_CATCH) {
   ok(`ctx catches "${target}" in "${text.slice(0, 34)}..."`, !!hit, 'not flagged');
   if (hit) ok(`ctx primary for "${target}" is "${expected}"`, hit.replacements[0].text === expected,
     'got "' + hit.replacements[0].text + '"');
+}
+
+// double space is its own shape (whitespace target)
+{
+  const fs = contextCheck('We doubled  the spacing by accident.');
+  const hit = fs.find(f => f.ruleId === 'ctx:double-space');
+  ok('ctx catches double space', !!hit && hit.replacements[0].text === ' ',
+    hit ? 'got "' + hit.replacements[0].text + '"' : 'not flagged');
 }
 
 // ---------- context rules: must NOT flag ----------
@@ -48,6 +69,20 @@ const CTX_CLEAN = [
   ['To be fair, the campaign did well.', ['To']],
   ['1. first item on the list', ['first']],
   ['We were there more than once.', ['there']],
+  ['Your best work is ahead of you.', ['Your']],
+  ["You're absolutely right about that.", ["You're"]],
+  ['Whose laptop is on the table?', ['Whose']],
+  ['Everyday tasks pile up quickly.', ['Everyday']],
+  ['We asked whether the venue was free.', ['whether']],
+  ['The weather is perfect for filming.', ['weather']],
+  ['We drove by the office on the way.', ['by']],
+  ['The theirs and ours debate continued.', ['theirs']],
+  ['Then we launched the campaign.', ['Then']],
+  ['I put the past behind me.', ['past']],
+  ['We manage the monday.com board for them.', ['monday']],
+  ['She did good in the world with her charity.', ['good']],
+  ['Sarah and I launched the page together.', ['I']],
+  ['He gave the award to Sarah, and I cried.', ['I']],
 ];
 for (const [text, words] of CTX_CLEAN) {
   const fs = contextCheck(text);
@@ -75,6 +110,11 @@ if (!process.argv.includes('--skip-ai')) {
       ['I would of never guessed the campaign would win.', 'have'],
       ['Lets talk about you\'re plan for the quarter tomorrow.', 'your'],
       ['It is a strange feeling, watching software work better that you do.', 'than'],
+      ['The list of deliverables were long this month.', 'was'],
+      ['The clients feedback on the new design was glowing.', "client"],
+      ['For all intensive purposes, the campaign is done.', 'intents'],
+      ['We need to insure the post goes out on time.', 'ensure'],
+      ['The new pricing had positive affects on signups.', 'effects'],
     ];
     for (const [text, expected] of AI_CATCH) {
       try {

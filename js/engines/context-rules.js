@@ -71,6 +71,93 @@ const RULES = [
     message: 'This looks like ownership, which is "your own".',
   },
   {
+    id: 'your-determiner',
+    // "Your the best" -> You're
+    re: /\byour(?=\s+(?:the|a|an)\b)/gi,
+    fix: (m) => (m[0] === 'Y' ? "You're" : "you're"),
+    message: 'This looks like "you are", which is spelled "you\'re".',
+  },
+  {
+    id: 'youre-noun',
+    // "send me you're address" -> your
+    re: /\byou're(?=\s+(?:address|name|email|phone|website|team|order|account|password|feedback|browser|calendar|inbox|schedule|budget|invoice|logo|brand|audience|clients?|customers?)\b)/gi,
+    fix: (m) => (m[0] === 'Y' ? 'Your' : 'your'),
+    message: 'This shows ownership, which is spelled "your".',
+  },
+  {
+    id: 'whose-adjective',
+    // "Whose ready for launch?" -> Who's
+    re: /\bwhose(?=\s+(?:ready|going|coming|excited|here|there|up|next|in|joining|running|available|interested)\b)/gi,
+    fix: (m) => (m[0] === 'W' ? "Who's" : "who's"),
+    message: 'This looks like "who is", which is spelled "who\'s".',
+  },
+  {
+    id: 'theirs-there-is',
+    // "Theirs no reason to wait" -> There's
+    re: /\btheirs(?=\s+(?:no|a|an|the|nothing|plenty|still|always|never)\b)/gi,
+    fix: (m) => (m[0] === 'T' ? "There's" : "there's"),
+    message: 'This looks like "there is", which is spelled "there\'s".',
+  },
+  {
+    id: 'everyday-adverb',
+    // "Everyday we post content" -> Every day (as an adjective, "everyday tasks" is fine)
+    re: /\beveryday(?=\s+(?:i|we|you|they|he|she|it)\b)/gi,
+    fix: (m) => (m[0] === 'E' ? 'Every day' : 'every day'),
+    message: 'As a standalone "each day", it is two words: "every day".',
+  },
+  {
+    id: 'the-whether',
+    re: /(?<=\bthe\s)whether\b/gi,
+    fix: (m) => (m[0] === 'W' ? 'Weather' : 'weather'),
+    message: '"Whether" introduces a choice. The sky kind is "weather".',
+  },
+  {
+    id: 'weather-or-not',
+    re: /\bweather(?=\s+or\s+not\b)/gi,
+    fix: (m) => (m[0] === 'W' ? 'Whether' : 'whether'),
+    message: 'A choice is "whether or not". "Weather" is the sky kind.',
+  },
+  {
+    id: 'to-by',
+    // "want to by the domain" -> buy
+    re: /(?<=\b(?:want|going|need|have|plan|trying|try)\s+to\s)by(?=\s+(?:the|a|an|some|it|this|that|new|more)\b)/gi,
+    fix: (m) => (m[0] === 'B' ? 'Buy' : 'buy'),
+    message: '"By" is a preposition. Purchasing is "buy".',
+  },
+  {
+    id: 'double-space',
+    re: /(?<=\S)  +(?=\S)/g,
+    fix: () => ' ',
+    message: 'Extra space.',
+  },
+  {
+    id: 'lowercase-day-month',
+    // may, march, august, june excluded: they are common words or names
+    re: /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|april|july|september|october|november|december)\b(?!\.\w)/g,
+    fix: (m) => m[0].toUpperCase() + m.slice(1),
+    message: 'Days and months are capitalized.',
+  },
+  {
+    id: 'did-good',
+    re: /(?<=\bdid\s)good(?=\s+(?:on|at|this|last|during|today|yesterday)\b)/gi,
+    fix: () => 'well',
+    message: 'How something was done takes "well", not "good".',
+  },
+  {
+    id: 'brang',
+    re: /\bbr(?:a|u)ng(ed)?\b/gi,
+    fix: (m) => (m[0] === 'B' ? 'Brought' : 'brought'),
+    message: 'The past tense of "bring" is "brought".',
+  },
+  {
+    id: 'and-i-object',
+    // "send it to Sarah and I." -> me (only at the end of a clause, where
+    // "and I" cannot start a new subject)
+    re: /(?<=\b(?:to|with|for|from|at|between)\s[A-Za-z]{2,20}\s+and\s)I(?=[.!?,;:]|\s*$)/gm,
+    fix: () => 'me',
+    message: 'After a preposition, it is "and me".',
+  },
+  {
     id: 'should-of',
     re: /\b(?:should|would|could|must|might)\s+(of)\b/gi,
     group: 1,

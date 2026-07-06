@@ -91,16 +91,23 @@ async function probeOptionalEngines() {
   const hosted = location.protocol === 'https:';
   if (settings.ltOn) {
     const was = lt.available;
+    lt.cloudEnabled = settings.ltCloud;
     await lt.probe();
     setPill('pill-lt', lt.available ? 'on' : 'off');
-    if (!lt.available) {
+    $('pill-lt').lastChild.textContent = lt.mode === 'cloud' ? 'LanguageTool · cloud' : 'LanguageTool';
+    if (lt.mode === 'cloud') {
+      $('pill-lt').title = "Deep grammar via LanguageTool's free cloud service. Text you check is sent to languagetool.org (not stored). Turn off in Settings.";
+    } else if (!lt.available) {
       $('pill-lt').title = hosted
-        ? 'LanguageTool runs in the local app. This hosted version checks with Harper only.'
+        ? 'Deeper grammar is off. Turn on cloud checking in Settings, or use the local app.'
         : 'LanguageTool is not running. Start it with: python scripts/start.py';
+    } else {
+      $('pill-lt').title = 'LanguageTool (local server)';
     }
     if (lt.available && !was) scheduleLint(0);
   } else {
     lt.available = false;
+    lt.mode = 'off';
     setPill('pill-lt', 'off');
   }
   if (settings.aiOn) {
@@ -254,8 +261,13 @@ async function runLint() {
     try {
       const lf = await lt.check(text, settings.dialect, dictionary);
       if (seq !== lintSeq) return;
-      ltFindings = lf;
-      mergeAndRender(text);
+      if (lf === null) {
+        // cloud tier is pacing itself: keep current findings, retry soon
+        setTimeout(() => { if (seq === lintSeq) scheduleLint(0); }, 4600);
+      } else {
+        ltFindings = lf;
+        mergeAndRender(text);
+      }
     } catch (err) { console.error('lt check failed', err); }
   } else {
     ltFindings = [];
@@ -750,6 +762,7 @@ function openSettings() {
   $('set-lt-url').value = settings.ltUrl;
   $('set-ollama-url').value = settings.ollamaUrl;
   $('set-lt-on').checked = settings.ltOn;
+  $('set-lt-cloud').checked = settings.ltCloud;
   $('set-ai-on').checked = settings.aiOn;
   $('set-ai-auto').checked = settings.aiAuto;
   const sel = $('set-model');
@@ -801,6 +814,7 @@ async function saveSettings() {
     ollamaUrl: $('set-ollama-url').value.trim() || 'http://localhost:11434',
     model: $('set-model').value,
     ltOn: $('set-lt-on').checked,
+    ltCloud: $('set-lt-cloud').checked,
     aiOn: $('set-ai-on').checked,
     aiAuto: $('set-ai-auto').checked,
   };

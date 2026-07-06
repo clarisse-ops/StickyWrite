@@ -10,35 +10,77 @@ const CAT_MAP = {
   GENDER_NEUTRALITY: 'delivery', FORMAL_SPEECH: 'delivery',
 };
 
+// LanguageTool's own free public API. Used only when no local server exists
+// and the user has the cloud setting on. Rate-limited by LT: we pace calls.
+const CLOUD_BASE = 'https://api.languagetool.org';
+const CLOUD_MIN_INTERVAL_MS = 4500;
+const CLOUD_MAX_CHARS = 19000;
+
 export class LanguageToolEngine {
   constructor(baseUrl = 'http://localhost:8081') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.available = false;
+    this.mode = 'off';          // 'local' | 'cloud' | 'off'
+    this.cloudEnabled = true;
+    this._cloudOk = null;       // cached cloud reachability (probe once)
+    this._lastCloudCall = 0;
+  }
+
+  _apiBase() {
+    return this.mode === 'cloud' ? CLOUD_BASE : this.baseUrl;
   }
 
   async probe() {
     try {
       const res = await fetch(this.baseUrl + '/v2/languages', { signal: AbortSignal.timeout(2500) });
-      this.available = res.ok;
-    } catch {
-      this.available = false;
+      if (res.ok) {
+        this.mode = 'local';
+        this.available = true;
+        return this.available;
+      }
+    } catch { /* no local server */ }
+
+    if (this.cloudEnabled) {
+      if (this._cloudOk === null) {
+        try {
+          const res = await fetch(CLOUD_BASE + '/v2/languages', { signal: AbortSignal.timeout(5000) });
+          this._cloudOk = res.ok;
+        } catch {
+          this._cloudOk = false;
+        }
+      }
+      if (this._cloudOk) {
+        this.mode = 'cloud';
+        this.available = true;
+        return this.available;
+      }
     }
+    this.mode = 'off';
+    this.available = false;
     return this.available;
   }
 
+  // Returns an array of findings, or null when the cloud tier is pacing
+  // itself (caller keeps its previous findings and retries shortly).
   async check(text, dialectName = 'American', dictWords = []) {
     if (!this.available || !text.trim()) return [];
+    if (this.mode === 'cloud') {
+      const since = Date.now() - this._lastCloudCall;
+      if (since < CLOUD_MIN_INTERVAL_MS) return null;
+      this._lastCloudCall = Date.now();
+    }
+    const maxChars = this.mode === 'cloud' ? CLOUD_MAX_CHARS : 60000;
     const lang = { American: 'en-US', British: 'en-GB', Australian: 'en-AU', Canadian: 'en-CA' }[dialectName] || 'en-US';
     // Default level (picky adds noisy typography rules, e.g. dash conversions).
     const body = new URLSearchParams({
-      text: text.slice(0, 60000),
+      text: text.slice(0, maxChars),
       language: lang,
       enabledOnly: 'false',
       disabledCategories: 'TYPOGRAPHY',
     });
     let data;
     try {
-      const res = await fetch(this.baseUrl + '/v2/check', {
+      const res = await fetch(this._apiBase() + '/v2/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,

@@ -61,7 +61,7 @@ The app is fully static, so it works on GitHub Pages as-is:
 1. Push the repo to GitHub.
 2. Settings → Pages → deploy from the `master` branch, root folder.
 
-Visitors get the Harper engine running inside their own browser, so the hosted version is exactly as private as the local one. The LanguageTool and AI tiers light up automatically for any visitor who happens to run those servers locally; for everyone else those pills simply stay off.
+Visitors get the Harper engine and the built-in context rules running inside their own browser. For deeper grammar, the hosted version falls back to LanguageTool's free cloud API (text is sent to languagetool.org for checking, not stored; there's a clearly labeled toggle in Settings to turn that off). Visitors who run the local servers get those automatically instead. The AI tier is local-app only.
 
 ## Project layout
 

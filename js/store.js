@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = {
   ollamaUrl: 'http://localhost:11434',
   model: '',
   ltOn: true,
+  ltCloud: true,
   aiOn: true,
   aiAuto: true,
 };

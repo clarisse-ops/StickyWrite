@@ -168,6 +168,7 @@ button { font-family: inherit; cursor: pointer; }
 .tab.cat-engagement { color: var(--engagement); }
 .tab.cat-delivery { color: var(--delivery); }
 
+.fixall-bar { display: flex; gap: 10px; align-items: center; padding: 10px 12px 0; }
 .ai-bar { display: flex; gap: 8px; padding: 10px 12px 0; }
 .btn {
   border: 1px solid var(--line); background: #fff; border-radius: 8px;

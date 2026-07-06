@@ -312,7 +312,10 @@ function mergeAndRender(text) {
     const w = f.problem.replace(/[^A-Za-z'-]/g, '').replace(/'s$/, '');
     return NAMES_SET.has(w);
   };
-  let all = [...harperFindings, ...ltFindings, ...ctxFindings]
+  // Context rules first: they are curated for precision, so on a tie they
+  // outrank the engines' statistical guesses (e.g. cloud LT suggesting
+  // "you" where "you're" is right).
+  let all = [...ctxFindings, ...harperFindings, ...ltFindings]
     .filter(f => !ignored.has(fingerprint(f)))
     .filter(f => !(isSpelling(f) && (dictSet.has(f.problem.toLowerCase()) || isKnownName(f))));
 
@@ -331,7 +334,21 @@ function mergeAndRender(text) {
         (f.replacements.length > 0 && k.replacements.length === 0) ||
         (f.end - f.start > k.end - k.start && f.replacements.length > 0)
       ));
-    if (better) kept[i] = f;
+    if (better) {
+      // Carry the loser's suggestions along as alternatives.
+      for (const r of k.replacements) {
+        if (f.replacements.length >= 3) break;
+        if (!f.replacements.some(x => x.text === r.text && x.kind === r.kind)) f.replacements.push(r);
+      }
+      kept[i] = f;
+    } else if (k.start === f.start && k.end === f.end) {
+      // Same span, different engine: keep the loser's suggestions as
+      // secondary options instead of silently discarding them.
+      for (const r of f.replacements) {
+        if (k.replacements.length >= 3) break;
+        if (!k.replacements.some(x => x.text === r.text && x.kind === r.kind)) k.replacements.push(r);
+      }
+    }
   }
   // AI clarity rewrites are sentence-level, a different granularity than
   // word-level lints, so they coexist instead of competing in the dedupe.
@@ -379,6 +396,10 @@ function renderCards() {
   const wrap = $('cards');
   wrap.innerHTML = '';
   const visible = findings.filter(f => activeTab === 'all' || f.category === activeTab);
+
+  const fixable = visible.filter(f => f.replacements.length);
+  $('fixall-bar').hidden = fixable.length < 2;
+  $('btn-fix-all').textContent = `✓ Fix all (${fixable.length})`;
   const pinned = $('pinned-cards').children.length;
   $('empty-state').style.display = (visible.length || pinned) ? 'none' : 'block';
 
@@ -499,6 +520,31 @@ function acceptFinding(f, r) {
   llmFindings = llmFindings.filter(x => x !== f);
   saveCurrent();
   scheduleLint(80);
+}
+
+// Apply the top suggestion of every visible card in one pass, applied from
+// the end of the document backward so earlier positions never shift.
+function fixAll() {
+  const targets = findings
+    .filter(f => activeTab === 'all' || f.category === activeTab)
+    .filter(f => f.replacements.length)
+    .sort((a, b) => b.start - a.start);
+  if (!targets.length) return;
+  hidePopup();
+  editor.unfocus();
+  let applied = 0;
+  for (const f of targets) {
+    const cur = editor.getText();
+    if (cur.substring(f.start, f.end) !== f.problem) continue; // moved or stale: skip, never guess
+    const r = f.replacements[0];
+    const ok = r.kind === 2
+      ? editor.insertAt(f.end, r.text)
+      : editor.replaceRange(f.start, f.end, r.kind === 1 ? '' : r.text);
+    if (ok) applied++;
+  }
+  saveCurrent();
+  scheduleLint(80);
+  toast(`Applied ${applied} fix${applied === 1 ? '' : 'es'}`);
 }
 
 function dismissFinding(f) {
@@ -940,6 +986,7 @@ function wireUi() {
   $('btn-save-settings').onclick = saveSettings;
   for (const pill of document.querySelectorAll('.pill')) pill.onclick = openSettings;
 
+  $('btn-fix-all').onclick = fixAll;
   $('btn-ai-clarity').onclick = runAiClarity;
   $('btn-ai-tone').onclick = runToneDetect;
   for (const b of $('sel-toolbar').querySelectorAll('button')) {

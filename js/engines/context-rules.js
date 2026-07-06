@@ -34,6 +34,13 @@ const RULES = [
     message: 'This looks like "they are", which is spelled "they\'re".',
   },
   {
+    id: 'their-gerund',
+    // "Their going to announce it" -> They're
+    re: /\btheir(?=\s+(?:going|gonna)\b)/gi,
+    fix: (m) => (m[0] === 'T' ? "They're" : "they're"),
+    message: 'This looks like "they are", which is spelled "they\'re".',
+  },
+  {
     id: 'there-own',
     re: /\bthere(?=\s+own\b)/gi,
     fix: (m) => (m[0] === 'T' ? 'Their' : 'their'),
@@ -77,8 +84,14 @@ const RULES = [
     message: 'Before an adjective like this, you want "too" (meaning overly).',
   },
   {
+    id: 'thankyou',
+    re: /\bthankyou\b/gi,
+    fix: (m) => (m[0] === 'T' ? 'Thank you' : 'thank you'),
+    message: '"Thank you" is two words.',
+  },
+  {
     id: 'then-comparison',
-    re: /(?<=\b(?:more|less|better|worse|faster|slower|higher|lower|bigger|smaller|easier|harder|rather|other|greater|cheaper|stronger|longer|shorter)\s)then\b/gi,
+    re: /(?<=\b(?:more|less|better|worse|faster|slower|higher|lower|bigger|smaller|easier|harder|rather|other|greater|cheaper|stronger|longer|shorter|taller|older|younger|newer|closer|earlier|later|nicer|cooler|warmer|larger|safer)\s)then\b/gi,
     fix: (m) => (m[0] === 'T' ? 'Than' : 'than'),
     message: 'Comparisons use "than". "Then" is about time.',
   },
@@ -140,7 +153,10 @@ function capitalizationCheck(text) {
 }
 
 export function contextCheck(text) {
-  const out = capitalizationCheck(text);
+  // Confusable-word rules run first so that when a word is both lowercase at
+  // a sentence start AND the wrong word ("your going to..."), the wrong-word
+  // fix ("you're") is the primary suggestion, not just "Your".
+  const out = [];
   for (const rule of RULES) {
     rule.re.lastIndex = 0;
     let m;
@@ -161,5 +177,6 @@ export function contextCheck(text) {
       if (rule.re.lastIndex === m.index) rule.re.lastIndex++;
     }
   }
+  out.push(...capitalizationCheck(text));
   return out;
 }

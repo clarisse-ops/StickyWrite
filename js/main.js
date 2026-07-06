@@ -8,6 +8,7 @@ import { store, DEMO_TEXT } from './store.js';
 import { NAMES } from '../data/names.js';
 
 const NAMES_SET = new Set(NAMES);
+const NAMES_LOWER = new Set(NAMES.map(n => n.toLowerCase()));
 
 const $ = (id) => document.getElementById(id);
 
@@ -318,7 +319,7 @@ function mergeAndRender(text) {
   const isSpelling = (f) => f.ruleId.startsWith('harper:Spelling') || f.ruleId.includes('MORFOLOGIK');
   const isKnownName = (f) => {
     const w = f.problem.replace(/[^A-Za-z'-]/g, '').replace(/'s$/, '');
-    return NAMES_SET.has(w);
+    return NAMES_SET.has(w) || NAMES_LOWER.has(w.toLowerCase());
   };
   // Context rules first: they are curated for precision, so on a tie they
   // outrank the engines' statistical guesses (e.g. cloud LT suggesting
@@ -340,13 +341,18 @@ function mergeAndRender(text) {
       SEV[f.category] < SEV[k.category] ||
       (SEV[f.category] === SEV[k.category] && (
         (f.replacements.length > 0 && k.replacements.length === 0) ||
-        (f.end - f.start > k.end - k.start && f.replacements.length > 0)
+        // curated context rules beat engine guesses wherever they overlap
+        (f.engine === 'ctx' && k.engine !== 'ctx' && f.replacements.length > 0) ||
+        (k.engine !== 'ctx' && f.end - f.start > k.end - k.start && f.replacements.length > 0)
       ));
     if (better) {
-      // Carry the loser's suggestions along as alternatives.
-      for (const r of k.replacements) {
-        if (f.replacements.length >= 3) break;
-        if (!f.replacements.some(x => x.text === r.text && x.kind === r.kind)) f.replacements.push(r);
+      // Carry the loser's suggestions along as alternatives (only when the
+      // spans are identical; cross-span alternatives would apply wrongly).
+      if (k.start === f.start && k.end === f.end) {
+        for (const r of k.replacements) {
+          if (f.replacements.length >= 3) break;
+          if (!f.replacements.some(x => x.text === r.text && x.kind === r.kind)) f.replacements.push(r);
+        }
       }
       kept[i] = f;
     } else if (k.start === f.start && k.end === f.end) {

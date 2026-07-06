@@ -295,6 +295,23 @@ button { font-family: inherit; cursor: pointer; }
 }
 .dict-word button { border: none; background: none; color: var(--muted); padding: 0; }
 
+/* ---------- Score panel ---------- */
+.score-panel {
+  position: fixed; top: 60px; right: 14px; z-index: 90;
+  width: 250px;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(20, 30, 40, .18);
+  padding: 16px 18px;
+}
+.sp-score { font-size: 30px; font-weight: 800; }
+.sp-score span { font-size: 14px; font-weight: 500; color: var(--muted); }
+.sp-sub { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.sp-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3.5px 0; }
+.sp-row span { color: var(--muted); }
+.sp-divider { border-top: 1px solid var(--line); margin: 8px 0; }
+
+.syn-list { display: flex; flex-wrap: wrap; gap: 6px; }
+
 /* ---------- Toast ---------- */
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -313,6 +330,14 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 15px; font-weight: 700;
   box-shadow: 0 8px 24px rgba(20, 30, 40, .3);
 }
+
+.toast-undo {
+  margin-left: 12px; border: none; border-radius: 6px;
+  background: rgba(255, 255, 255, .18); color: #fff;
+  font-size: 12.5px; font-weight: 700; padding: 4px 10px;
+}
+.toast-undo:hover { background: rgba(255, 255, 255, .3); }
+.stat-saved { margin-left: auto; color: #aab3bd; }
 
 @media (max-width: 1100px) {
   .docs-drawer { position: absolute; z-index: 40; height: 100%; }

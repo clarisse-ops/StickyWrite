@@ -134,6 +134,15 @@ export class OllamaEngine {
     return out;
   }
 
+  async synonyms(word, sentence) {
+    const content = await this._chat(
+      'You suggest synonyms that fit the sentence context. Respond ONLY with JSON: {"synonyms": ["...", "..."]} with 4-6 single words or short phrases that could replace the target word in this exact sentence, same tense and form, ordered best first. No explanations.',
+      `Sentence: ${sentence}\nTarget word: ${word}`
+    );
+    const parsed = JSON.parse(content);
+    return (parsed.synonyms || []).filter(s => typeof s === 'string' && s && s.toLowerCase() !== word.toLowerCase());
+  }
+
   async rewrite(text, mode) {
     const instructions = {
       shorten: 'Rewrite this text to be significantly shorter while keeping every important point. Same voice, same meaning.',

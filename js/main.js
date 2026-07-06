@@ -196,8 +196,16 @@ function openDoc(id, { skipSave } = {}) {
 let quotaWarned = false;
 function saveCurrent() {
   if (!currentDoc) return;
+  // Auto-name untitled documents from the first line, like Grammarly.
+  const text = editor.getText();
+  if ($('doc-title').value === 'Untitled document' && text.trim()) {
+    const firstLine = text.trim().split('\n')[0].trim();
+    if (firstLine) $('doc-title').value = firstLine.slice(0, 44) + (firstLine.length > 44 ? '…' : '');
+  }
   try {
-    store.saveDoc(currentDoc.id, { title: $('doc-title').value, text: editor.getText() });
+    store.saveDoc(currentDoc.id, { title: $('doc-title').value, text });
+    const now = new Date();
+    $('stat-saved').textContent = 'Saved ' + now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   } catch (err) {
     console.error('save failed', err);
     if (!quotaWarned) {
@@ -385,6 +393,90 @@ function updateScore() {
   ring.style.stroke = score >= 85 ? 'var(--accent)' : score >= 60 ? '#f5b93e' : 'var(--correctness)';
 }
 
+// ---------- score breakdown panel ----------
+function toggleScorePanel() {
+  const panel = $('score-panel');
+  if (!panel.hidden) { panel.hidden = true; return; }
+  const text = editor.getText();
+  const s = textStats(text);
+  const words = (text.match(/[A-Za-z0-9'’-]+/g) || []).map(w => w.toLowerCase());
+  const unique = words.length ? Math.round(new Set(words).size / words.length * 100) : 0;
+  const counts = { correctness: 0, clarity: 0, engagement: 0, delivery: 0 };
+  findings.forEach(f => counts[f.category]++);
+  const score = $('score-num').textContent;
+  const row = (label, value) => `<div class="sp-row"><span>${label}</span><b>${value}</b></div>`;
+  panel.innerHTML = `
+    <div class="sp-score">${score}<span>/100</span></div>
+    <div class="sp-sub">Overall score</div>
+    ${row('Words', s.words)}
+    ${row('Characters', s.chars)}
+    ${row('Sentences', s.sentences)}
+    ${row('Reading time', s.readMinutes + ' min')}
+    ${row('Speaking time', (s.words ? Math.max(1, Math.round(s.words / 130)) : 0) + ' min')}
+    ${row('Readability', fleschLabel(s.flesch))}
+    ${row('Vocabulary variety', unique + '% unique words')}
+    <div class="sp-divider"></div>
+    ${row('<span style="color:var(--correctness)">●</span> Correctness', counts.correctness)}
+    ${row('<span style="color:var(--clarity)">●</span> Clarity', counts.clarity)}
+    ${row('<span style="color:var(--engagement)">●</span> Engagement', counts.engagement)}
+    ${row('<span style="color:var(--delivery)">●</span> Delivery', counts.delivery)}
+  `;
+  panel.hidden = false;
+}
+
+// ---------- synonyms on double-click (local AI) ----------
+async function showSynonyms() {
+  if (!ollama.available) return;
+  const sel = window.getSelection();
+  const word = sel.toString().trim();
+  if (!/^[A-Za-z'-]{3,24}$/.test(word) || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0).cloneRange();
+  const start = editor.offsetAt(range.startContainer, range.startOffset);
+  const end = editor.offsetAt(range.endContainer, range.endOffset);
+  if (start == null || end == null) return;
+  const text = editor.getText();
+  const sentence = text.slice(...Object.values(sentenceRangeAt(text, start)));
+  const rect = range.getBoundingClientRect();
+
+  const pop = $('popup-card');
+  popupFinding = null;
+  pop.innerHTML = `<div class="popup-head">Synonyms for "${word}"</div><div class="ai-progress" style="padding:4px 0"><span class="spinner"></span><span>Thinking...</span></div>`;
+  pop.hidden = false;
+  const x = Math.min(Math.max(12, rect.left), window.innerWidth - 332);
+  pop.style.left = x + 'px';
+  pop.style.top = Math.max(64, rect.bottom + 8) + 'px';
+
+  let syns = [];
+  try {
+    syns = await ollama.synonyms(word, sentence);
+  } catch { /* fall through */ }
+  if (pop.hidden) return; // user closed it meanwhile
+  pop.innerHTML = `<div class="popup-head">Synonyms for "${word}"</div>`;
+  if (!syns.length) {
+    pop.innerHTML += '<div class="muted small">No good synonyms found.</div>';
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'syn-list';
+  for (const s of syns.slice(0, 6)) {
+    const b = document.createElement('button');
+    b.className = 'rep-btn secondary';
+    b.textContent = s;
+    b.onclick = () => {
+      const cur = editor.getText();
+      if (cur.substring(start, end) === word) {
+        editor.replaceRange(start, end, s);
+        saveCurrent();
+        scheduleLint(80);
+        toast('Replaced', 1);
+      }
+      hidePopup();
+    };
+    wrap.appendChild(b);
+  }
+  pop.appendChild(wrap);
+}
+
 // ---------- cards ----------
 function renderCards() {
   const counts = { all: findings.length, correctness: 0, clarity: 0, engagement: 0, delivery: 0 };
@@ -520,6 +612,7 @@ function acceptFinding(f, r) {
   llmFindings = llmFindings.filter(x => x !== f);
   saveCurrent();
   scheduleLint(80);
+  toast('Fixed', 1);
 }
 
 // Apply the top suggestion of every visible card in one pass, applied from
@@ -544,7 +637,7 @@ function fixAll() {
   }
   saveCurrent();
   scheduleLint(80);
-  toast(`Applied ${applied} fix${applied === 1 ? '' : 'es'}`);
+  toast(`Applied ${applied} fix${applied === 1 ? '' : 'es'}`, applied);
 }
 
 function dismissFinding(f) {
@@ -661,7 +754,7 @@ function acceptSentence(list) {
   }
   saveCurrent();
   scheduleLint(80);
-  toast(`Sentence corrected (${applied} fix${applied === 1 ? '' : 'es'})`);
+  toast(`Sentence corrected (${applied} fix${applied === 1 ? '' : 'es'})`, applied);
 }
 
 function showPopup(f) {
@@ -999,12 +1092,25 @@ async function saveSettings() {
 
 // ---------- misc UI ----------
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, undoSteps = 0) {
   const t = $('toast');
   t.textContent = msg;
+  if (undoSteps > 0) {
+    const u = document.createElement('button');
+    u.className = 'toast-undo';
+    u.textContent = 'Undo';
+    u.onclick = () => {
+      $('editor').focus();
+      for (let i = 0; i < undoSteps; i++) document.execCommand('undo');
+      t.hidden = true;
+      saveCurrent();
+      scheduleLint(80);
+    };
+    t.appendChild(u);
+  }
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => { t.hidden = true; }, undoSteps ? 5000 : 2600);
 }
 
 function wireUi() {
@@ -1109,6 +1215,8 @@ function wireUi() {
   $('btn-save-settings').onclick = saveSettings;
   for (const pill of document.querySelectorAll('.pill')) pill.onclick = openSettings;
 
+  $('score-wrap').onclick = toggleScorePanel;
+  $('editor').addEventListener('dblclick', showSynonyms);
   $('btn-fix-all').onclick = fixAll;
   $('btn-ai-clarity').onclick = runAiClarity;
   $('btn-ai-tone').onclick = runToneDetect;
@@ -1120,6 +1228,9 @@ function wireUi() {
     if (!$('popup-card').hidden && !$('popup-card').contains(e.target) && !$('editor').contains(e.target)) {
       hidePopup();
       editor.unfocus();
+    }
+    if (!$('score-panel').hidden && !$('score-panel').contains(e.target) && !$('score-wrap').contains(e.target)) {
+      $('score-panel').hidden = true;
     }
   });
 

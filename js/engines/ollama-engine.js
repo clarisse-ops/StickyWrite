@@ -3,6 +3,59 @@
 
 const PREFERRED = ['qwen3', 'qwen2.5', 'llama3.1', 'llama3.2', 'gemma3', 'mistral', 'phi4'];
 
+// Word-level diff between original and corrected text (LCS over tokens).
+// Returns change hunks {start, old, neu} with start as a char offset into a,
+// or null when the texts are too large to diff comfortably.
+function wordDiff(a, b) {
+  const ta = a.split(/(\s+)/).filter(x => x !== '');
+  const tb = b.split(/(\s+)/).filter(x => x !== '');
+  const n = ta.length, m = tb.length;
+  if (n * m > 400000) return null;
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = ta[i] === tb[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const rawHunks = [];
+  let i = 0, j = 0, aPos = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && ta[i] === tb[j]) { aPos += ta[i].length; i++; j++; continue; }
+    const start = aPos;
+    let oldS = '', neuS = '';
+    while (i < n || j < m) {
+      if (i < n && j < m && ta[i] === tb[j]) break;
+      const takeA = j >= m || (i < n && dp[i + 1][j] >= dp[i][j + 1]);
+      if (takeA) { oldS += ta[i]; aPos += ta[i].length; i++; }
+      else { neuS += tb[j]; j++; }
+    }
+    rawHunks.push({ start, old: oldS, neu: neuS });
+  }
+  // Tidy each hunk: trim shared leading/trailing whitespace, and give
+  // insertion-only hunks a visible anchor by pulling in the previous word.
+  const hunks = [];
+  for (const h of rawHunks) {
+    let { start, old, neu } = h;
+    const ltrim = Math.min(old.match(/^\s*/)[0].length, neu.match(/^\s*/)[0].length);
+    start += ltrim; old = old.slice(ltrim); neu = neu.slice(ltrim);
+    const rOld = old.match(/\s*$/)[0].length, rNeu = neu.match(/\s*$/)[0].length;
+    const rtrim = Math.min(rOld, rNeu);
+    if (rtrim) { old = old.slice(0, old.length - rtrim); neu = neu.slice(0, neu.length - rtrim); }
+    if (!old && neu) {
+      const before = a.slice(0, start);
+      const prev = before.match(/(\S+)(\s*)$/);
+      if (prev) {
+        start -= prev[1].length + prev[2].length;
+        old = prev[1] + prev[2];
+        neu = prev[1] + prev[2] + neu + (neu.endsWith(' ') || a[start + old.length] === ' ' ? '' : ' ');
+      }
+    }
+    if (old === neu) continue;
+    hunks.push({ start, old, neu });
+  }
+  return hunks;
+}
+
 export class OllamaEngine {
   constructor(baseUrl = 'http://localhost:11434') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -109,26 +162,37 @@ export class OllamaEngine {
     return findings;
   }
 
-  // Grammar pass over one paragraph: catches real-word errors (hear/here,
-  // you/your) that rule engines cannot see. Returns errors with offsets
-  // relative to the paragraph.
+  // Grammar pass over one paragraph. Small models are far better at
+  // "rewrite this correctly" than "list the errors", so we ask for a minimal
+  // corrected rewrite and diff it against the original to extract precise
+  // suggestions (the GECToR insight). Returns errors with offsets relative
+  // to the paragraph.
   async grammarCheck(paragraph) {
     const content = await this._chat(
-      'You are a meticulous copy editor. Find genuine errors only: a wrong word that is spelled correctly (hear/here, your/you\'re, hole/whole), a missing or extra word, a wrong verb form, or a missing comma after a greeting. American English spelling is correct as-is, never change gray/color/center style spellings. Do NOT rewrite style, tone, punctuation preferences, or word choice. Do NOT flag informal but correct writing. When unsure, do not flag. Respond ONLY with JSON: {"errors": [{"original": "<shortest exact substring copied verbatim, including the error>", "corrected": "<the fixed substring>", "reason": "<max 8 words>"}]}. If there are no errors: {"errors": []}',
+      'You are a careful copy editor. Rewrite the text with every grammar error, wrong word, missing word, and wrong verb form fixed. Change as FEW words as possible and keep the writer\'s exact voice, tone, and phrasing. American English spelling is correct as-is (gray, color, center). Do not restructure sentences that are already correct. Respond ONLY with JSON: {"corrected": "<the fixed text>"}',
       paragraph
     );
     const parsed = JSON.parse(content);
+    let corrected = (parsed.corrected || '').trim();
+    if (!corrected) return [];
+    // Normalize typographic quotes the model may introduce.
+    corrected = corrected.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+    if (corrected === paragraph.trim()) return [];
+    const hunks = wordDiff(paragraph, corrected);
+    if (!hunks) return [];
+    // Sanity guard: if the model changed a large share of the words, it
+    // rewrote rather than corrected. Discard the pass.
+    const changedChars = hunks.reduce((n, h) => n + h.old.length, 0);
+    if (changedChars > paragraph.length * 0.4) return [];
     const out = [];
-    for (const e of parsed.errors || []) {
-      if (!e.original || !e.corrected || e.original === e.corrected) continue;
-      const idx = paragraph.indexOf(e.original);
-      if (idx === -1) continue; // model did not quote verbatim: drop
+    for (const h of hunks) {
+      if (!h.old.trim() && !h.neu.trim()) continue;
       out.push({
-        offset: idx,
-        length: e.original.length,
-        original: e.original,
-        corrected: e.corrected,
-        reason: e.reason || 'Grammar',
+        offset: h.start,
+        length: h.old.length,
+        original: h.old,
+        corrected: h.neu,
+        reason: 'AI correction',
       });
     }
     return out;

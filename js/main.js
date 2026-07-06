@@ -429,7 +429,7 @@ function buildCard(f, isPopup) {
   kind.textContent = `${CAT_LABELS[f.category]} · ${f.kindLabel}`;
   const eng = document.createElement('span');
   eng.className = 'engine-tag';
-  eng.textContent = f.engine === 'llm' ? 'AI' : f.engine === 'lt' ? 'LT' : 'Harper';
+  eng.textContent = { llm: 'AI', lt: 'LT', ctx: 'Rules', harper: 'Harper' }[f.engine] || f.engine;
   head.append(dot, kind, eng);
 
   const fix = document.createElement('div');

@@ -40,7 +40,17 @@ const CTX_CATCH = [
   ['The team did good on this project.', 'good', 'well'],
   ['We brang the invoices to the meeting.', 'brang', 'brought'],
   ['Please send the report to Sarah and I.', 'I', 'me'],
+  ['I could have sworn it reads you\'re mind.', "you're", 'your'],
+  ['We tested it on Monday and it did good, regardless.', 'good', 'well'],
 ];
+
+// stacked commas (whitespace-ish target)
+{
+  const fs = contextCheck('We tested it on Monday,,, and it worked.');
+  const hit = fs.find(f => f.ruleId === 'ctx:repeated-comma');
+  ok('ctx catches stacked commas', !!hit && hit.replacements[0].text === ',',
+    hit ? 'got "' + hit.replacements[0].text + '"' : 'not flagged');
+}
 for (const [text, target, expected] of CTX_CATCH) {
   const fs = contextCheck(text);
   const hit = fs.find(f => f.problem === target);
@@ -81,6 +91,8 @@ const CTX_CLEAN = [
   ['I put the past behind me.', ['past']],
   ['We manage the monday.com board for them.', ['monday']],
   ['She did good in the world with her charity.', ['good']],
+  ["You're mind-blowingly consistent at this.", ["You're"]],
+  ['She did good, and the whole town knew it.', ['good']],
   ['Sarah and I launched the page together.', ['I']],
   ['He gave the award to Sarah, and I cried.', ['I']],
 ];

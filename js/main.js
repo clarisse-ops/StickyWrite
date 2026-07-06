@@ -496,7 +496,7 @@ function renderCards() {
   wrap.innerHTML = '';
   const visible = findings.filter(f => activeTab === 'all' || f.category === activeTab);
 
-  const fixable = visible.filter(f => f.replacements.length);
+  const fixable = visible.filter(f => f.replacements.length && f.engine !== 'llm');
   $('fixall-bar').hidden = fixable.length < 2;
   $('btn-fix-all').textContent = `✓ Fix all (${fixable.length})`;
   const pinned = $('pinned-cards').children.length;
@@ -597,6 +597,19 @@ function truncate(s, n) {
 }
 
 // ---------- actions ----------
+
+// Once a span is fixed, EVERY finding touching it must die immediately, not
+// just the one that was clicked. A dedupe runner-up on an overlapping span
+// can otherwise survive offset shifting and get re-applied later
+// ("We new" -> "We knew" -> "We kknew").
+function retireSpan(start, end) {
+  const dead = (x) => Math.max(x.start, start) < Math.min(x.end, end);
+  harperFindings = harperFindings.filter(x => !dead(x));
+  ltFindings = ltFindings.filter(x => !dead(x));
+  ctxFindings = ctxFindings.filter(x => !dead(x));
+  llmFindings = llmFindings.filter(x => !dead(x));
+}
+
 function acceptFinding(f, r) {
   hidePopup();
   editor.unfocus();
@@ -612,11 +625,11 @@ function acceptFinding(f, r) {
     f.start = first;
     f.end = first + f.problem.length;
   }
+  retireSpan(f.start, f.end);
   let ok;
   if (r.kind === 2) ok = editor.insertAt(f.end, r.text);        // InsertAfter
   else ok = editor.replaceRange(f.start, f.end, r.kind === 1 ? '' : r.text);
   if (!ok) { toast('Could not apply this suggestion.'); return; }
-  llmFindings = llmFindings.filter(x => x !== f);
   saveCurrent();
   scheduleLint(80);
   toast('Fixed', 1);
@@ -625,9 +638,11 @@ function acceptFinding(f, r) {
 // Apply the top suggestion of every visible card in one pass, applied from
 // the end of the document backward so earlier positions never shift.
 function fixAll() {
+  // Bulk-apply is for the deterministic tiers only. AI suggestions can be
+  // wrong in ways rules cannot, so they stay click-to-review.
   const targets = findings
     .filter(f => activeTab === 'all' || f.category === activeTab)
-    .filter(f => f.replacements.length)
+    .filter(f => f.replacements.length && f.engine !== 'llm')
     .sort((a, b) => b.start - a.start);
   if (!targets.length) return;
   hidePopup();
@@ -637,6 +652,7 @@ function fixAll() {
     const cur = editor.getText();
     if (cur.substring(f.start, f.end) !== f.problem) continue; // moved or stale: skip, never guess
     const r = f.replacements[0];
+    retireSpan(f.start, f.end);
     const ok = r.kind === 2
       ? editor.insertAt(f.end, r.text)
       : editor.replaceRange(f.start, f.end, r.kind === 1 ? '' : r.text);
@@ -754,6 +770,7 @@ function acceptSentence(list) {
     const cur = editor.getText();
     if (cur.substring(f.start, f.end) !== f.problem) continue;
     const r = f.replacements[0];
+    retireSpan(f.start, f.end);
     const ok = r.kind === 2
       ? editor.insertAt(f.end, r.text)
       : editor.replaceRange(f.start, f.end, r.kind === 1 ? '' : r.text);

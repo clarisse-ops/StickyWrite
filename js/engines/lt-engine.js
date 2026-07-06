@@ -16,6 +16,26 @@ const CLOUD_BASE = 'https://api.languagetool.org';
 const CLOUD_MIN_INTERVAL_MS = 4500;
 const CLOUD_MAX_CHARS = 19000;
 
+// True when replacement has the same letters as problem but loses one of the
+// problem's existing spaces (a moved word boundary, i.e. junk). False for
+// real corrections and for pure word splits that only add spaces.
+function movesWordBoundary(problem, replacement) {
+  let i = 0, j = 0;
+  while (i < problem.length && j < replacement.length) {
+    if (problem[i] === ' ') {
+      if (replacement[j] !== ' ') return true; // original boundary swallowed
+      i++; j++;
+    } else if (replacement[j] === ' ') {
+      j++; // added split: fine
+    } else if (problem[i].toLowerCase() === replacement[j].toLowerCase()) {
+      i++; j++;
+    } else {
+      return false; // letters differ: a real correction, not a respacing
+    }
+  }
+  return false;
+}
+
 export class LanguageToolEngine {
   constructor(baseUrl = 'http://localhost:8081') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -101,6 +121,14 @@ export class LanguageToolEngine {
       const catId = m.rule?.category?.id || 'MISC';
       // Respect the personal dictionary for spelling hits.
       if (catId === 'TYPOS' && dict.has(problem.toLowerCase().replace(/[^a-z']/g, ''))) continue;
+      let replacements = (m.replacements || []).slice(0, 5).map(r => ({ text: r.value, kind: 0 }));
+      // For multi-word spans, drop suggestions that MOVE an existing word
+      // boundary ("are alot" -> "area lot", "We brang" -> "Web rang"): those
+      // are dictionary-split junk. Pure splits that only ADD a space
+      // ("are alot" -> "are a lot") are legitimate and kept.
+      if (problem.includes(' ')) {
+        replacements = replacements.filter(r => movesWordBoundary(problem, r.text) === false);
+      }
       out.push({
         engine: 'lt',
         start: m.offset,
@@ -109,7 +137,7 @@ export class LanguageToolEngine {
         kindLabel: m.rule?.category?.name || 'Style',
         message: m.message,
         problem,
-        replacements: (m.replacements || []).slice(0, 5).map(r => ({ text: r.value, kind: 0 })),
+        replacements,
         ruleId: 'lt:' + (m.rule?.id || catId),
       });
     }

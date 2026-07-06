@@ -79,8 +79,8 @@ const RULES = [
   },
   {
     id: 'youre-noun',
-    // "send me you're address" -> your
-    re: /\byou're(?=\s+(?:address|name|email|phone|website|team|order|account|password|feedback|browser|calendar|inbox|schedule|budget|invoice|logo|brand|audience|clients?|customers?)\b)/gi,
+    // "send me you're address" -> your (hyphen guard: "you're mind-blowing" is fine)
+    re: /\byou're(?=\s+(?:address|name|email|phone|website|team|order|account|password|feedback|browser|calendar|inbox|schedule|budget|invoice|logo|brand|audience|clients?|customers?|mind|life|time|money|work|writing|voice|business|story|day|week|goals?|plans?)\b(?!-))/gi,
     fix: (m) => (m[0] === 'Y' ? 'Your' : 'your'),
     message: 'This shows ownership, which is spelled "your".',
   },
@@ -142,6 +142,19 @@ const RULES = [
     re: /(?<=\bdid\s)good(?=\s+(?:on|at|this|last|during|today|yesterday)\b)/gi,
     fix: () => 'well',
     message: 'How something was done takes "well", not "good".',
+  },
+  {
+    id: 'it-did-good',
+    // "it did good" is about performance, unlike "she did good in the world"
+    re: /(?<=\bit\s+did\s)good(?=\s*[,.!?]|\s+(?:and|but|so|regardless)\b)/gi,
+    fix: () => 'well',
+    message: 'How something performed takes "well", not "good".',
+  },
+  {
+    id: 'repeated-comma',
+    re: /,(?:\s*,)+/g,
+    fix: () => ',',
+    message: 'Stacked commas.',
   },
   {
     id: 'brang',
